@@ -1,0 +1,74 @@
+# Local development stack. All credentials here are DEV-ONLY.
+name: getmyseat
+
+services:
+  postgres:
+    # Keep in sync with TestcontainersConfiguration.
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: getmyseat
+      POSTGRES_USER: getmyseat
+      POSTGRES_PASSWORD: getmyseat
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U getmyseat -d getmyseat"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    # Keep in sync with KeycloakRealmIT.
+    image: quay.io/keycloak/keycloak:26.7.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # The Keycloak image ships without curl/wget, so probe the management port with bash.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/getmyseat
+      DB_USERNAME: getmyseat
+      DB_PASSWORD: getmyseat
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # /bin/sh in the JRE image is dash, which has no /dev/tcp; use bash explicitly.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+volumes:
+  postgres-data:

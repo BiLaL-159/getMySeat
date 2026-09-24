@@ -1,0 +1,143 @@
+{
+  "realm": "getmyseat",
+  "displayName": "GetMySeat",
+  "enabled": true,
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "sslRequired": "external",
+  "roles": {
+    "realm": [
+      {
+        "name": "CUSTOMER",
+        "description": "Browses Shows and buys tickets. Granted to everyone who registers."
+      },
+      {
+        "name": "ORGANIZER",
+        "description": "Creates Events and Shows. Granted by the backend when an Admin approves an Organizer Application."
+      },
+      {
+        "name": "ADMIN",
+        "description": "Platform operator who approves Organizers and Venues."
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}"
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}"
+      },
+      {
+        "name": "default-roles-getmyseat",
+        "description": "Roles every new user receives.",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "CUSTOMER",
+            "offline_access",
+            "uma_authorization"
+          ]
+        }
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-getmyseat"
+  },
+  "clients": [
+    {
+      "clientId": "getmyseat-frontend",
+      "name": "GetMySeat web app",
+      "description": "React SPA. Public client using Authorization Code + PKCE.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      }
+    },
+    {
+      "clientId": "getmyseat-dev-cli",
+      "name": "GetMySeat dev CLI (local only)",
+      "description": "DEV ONLY. Password grant so developers and tests can fetch tokens with curl. Never enable outside local environments.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "customer",
+      "email": "customer@getmyseat.local",
+      "firstName": "Casey",
+      "lastName": "Customer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-getmyseat"
+      ]
+    },
+    {
+      "username": "organizer",
+      "email": "organizer@getmyseat.local",
+      "firstName": "Olive",
+      "lastName": "Organizer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-getmyseat",
+        "ORGANIZER"
+      ]
+    },
+    {
+      "username": "platform-admin",
+      "email": "admin@getmyseat.local",
+      "firstName": "Ada",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-getmyseat",
+        "ADMIN"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+-- Baseline: starts the Flyway version history. Domain tables arrive in later migrations.

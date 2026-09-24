@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: getmyseat
+  datasource:
+    # Defaults match docker-compose.yml; override via environment in any other environment.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/getmyseat}
+    username: ${DB_USERNAME:getmyseat}
+    password: ${DB_PASSWORD:getmyseat}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks entities against it.
+      ddl-auto: validate
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-components: always
+      probes:
+        enabled: true

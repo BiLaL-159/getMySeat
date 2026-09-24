@@ -1,0 +1,21 @@
+# Private planning docs — never commit
+CONTEXT.md
+docs/PLAN.md
+docs/adr/
+
+# Build output
+target/
+dist/
+node_modules/
+.mvn/wrapper/maven-wrapper.jar
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
