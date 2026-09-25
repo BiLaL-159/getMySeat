@@ -1,5 +1,6 @@
 package com.getmyseat.catalogue;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -10,6 +11,7 @@ interface ShowRepository extends JpaRepository<Show, UUID> {
 
 	Page<Show> findByEventId(UUID eventId, Pageable pageable);
 
-	Page<Show> findByEventIdAndStatus(UUID eventId, Show.Status status, Pageable pageable);
+	Page<Show> findByEventIdAndStatusAndStartsAtAfter(UUID eventId, Show.Status status, Instant after,
+			Pageable pageable);
 
 }

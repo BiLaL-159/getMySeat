@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -78,7 +79,7 @@ class VenueController {
 	@GetMapping("/mine")
 	@PreAuthorize("hasRole('ORGANIZER')")
 	@Operation(summary = "The Venues you proposed, in any status")
-	Page<VenueSummary> mine(Caller organizer, @PageableDefault(sort = "createdAt") Pageable pageable) {
+	Page<VenueSummary> mine(Caller organizer, @ParameterObject @PageableDefault(sort = "createdAt") Pageable pageable) {
 		return this.service.mine(organizer, SORTABLE.check(pageable));
 	}
 
@@ -87,7 +88,8 @@ class VenueController {
 	@Operation(summary = "Search approved Venues",
 			description = "Public. q matches part of the name and city matches the whole city, both ignoring case.")
 	Page<VenueSummary> search(@RequestParam(required = false) @Nullable String q,
-			@RequestParam(required = false) @Nullable String city, @PageableDefault(sort = "name") Pageable pageable) {
+			@RequestParam(required = false) @Nullable String city,
+			@ParameterObject @PageableDefault(sort = "name") Pageable pageable) {
 		return this.service.search(q, city, SORTABLE.check(pageable));
 	}
 

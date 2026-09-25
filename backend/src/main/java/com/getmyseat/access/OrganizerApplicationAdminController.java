@@ -3,6 +3,7 @@ package com.getmyseat.access;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -44,7 +45,7 @@ class OrganizerApplicationAdminController {
 	@Operation(summary = "The Organizer Application queue, oldest first",
 			description = "Filter by status to see pending applications or look back at past decisions.")
 	Page<OrganizerApplicationResponse> queue(@RequestParam(required = false) OrganizerApplication.@Nullable Status status,
-			@PageableDefault(sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable) {
+			@ParameterObject @PageableDefault(sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable) {
 		SORTABLE.check(pageable);
 		return this.service.queue(status, pageable).map(OrganizerApplicationResponse::of);
 	}

@@ -4,7 +4,7 @@
 
 A live-event ticketing platform. Organizers list Events and schedule Shows at Venues; Customers hold and pay for tickets, either numbered Seats or General Admission capacity, without any seat ever being sold twice.
 
-> **Status:** Phase 1 in progress. The API validates Keycloak tokens and has its shared conventions (errors, pagination, OpenAPI); catalogue features are next.
+> **Status:** Phase 1 (catalogue and access control) is complete: Organizer Applications, Venue approval, Events, Shows with Section Prices, and public browsing. See the [Phase 1 demo](#phase-1-demo). Holds and Bookings (Phase 2) are next.
 
 ## Stack
 
@@ -120,10 +120,25 @@ An Organizer creates Events as drafts, edits them and publishes them. Drafts are
 | `PUT /api/v1/events/{id}` | Organizer | Edit your Event, draft or published. Send the same fields plus the `version` you last read; if the Event changed since, you get `409` and should reload it. |
 | `POST /api/v1/events/{id}/publish` | Organizer | `DRAFT → PUBLISHED`. `409` if it's already published. |
 | `GET /api/v1/events/mine` | Organizer | Your Events, drafts included, newest first and paginated. Sort by `createdAt` or `title`. |
-| `GET /api/v1/events?q=` | Anyone | Published Events, most recently published first and paginated. `q` matches part of the title or description, ignoring case. Sort by `publishedAt` or `title`. |
+| `GET /api/v1/events?q=&city=&category=&from=&to=` | Anyone | Published Events, most recently published first and paginated. Every filter is optional. `q` matches part of the title or description and `category` the whole category. `city`, `from` and `to` match Events with at least one upcoming published Show in that city (ignoring case) starting between those ISO dates, inclusive. Dates are taken in the Venue's time zone, so a Show at 1 am in Mumbai counts for that Mumbai date. When you combine them, one Show must match all three. Sort by `publishedAt` or `title`. |
 | `GET /api/v1/events/{id}` | Anyone | A published Event. Signed in, you also see your own drafts. |
 
 Someone else's draft is `404` to every caller, and changing someone else's published Event is `403`. Only the owner sees `ownerSubject`.
+
+### Shows
+
+A Show is one occurrence of an Event at an approved Venue. The Event's owner schedules and prices it as a draft, then publishes it.
+
+| Endpoint | Who | What |
+| --- | --- | --- |
+| `POST /api/v1/events/{id}/shows` | Organizer | Schedule a draft Show of your Event with `venueId` (an approved Venue) and a future `startsAt`. |
+| `PUT /api/v1/shows/{id}` | Organizer | Move a draft Show to another `venueId` or `startsAt`, with the `version` you last read. Moving it to another Venue drops the prices of Sections the new Venue doesn't have. |
+| `PUT /api/v1/shows/{id}/prices` | Organizer | Replace every Section Price at once: `prices`, each a `sectionId`, `amountPaise` (whole paise, so `50000` is ₹500) and `currency` (`INR`). |
+| `POST /api/v1/shows/{id}/publish` | Organizer | Needs a published Event, an approved Venue, a future start time and a price for every Section. After this, the Venue, start time and prices are locked. |
+| `GET /api/v1/events/{id}/shows` | Anyone | The Event's upcoming published Shows, soonest first and paginated. Each has its `startsAt` and its `venue` (`id`, `name`, `address`, `city`, `timeZone`). The Event's owner sees every Show, drafts and past ones included. Sort by `startsAt` or `createdAt`. |
+| `GET /api/v1/shows/{id}` | Anyone | A published Show, even after it has started, with its `venue` and every Section in layout order. Each Section has its `kind`, `price`, and either a `capacity` (General Admission) or its `seats` (Seated). Signed in, you also see your own drafts, where a Section may have no `price` yet. |
+
+A draft Show, or a Show of a draft Event, is `404` to everyone but the Event's owner. Changing someone else's published Show is `403`.
 
 Conventions every endpoint follows:
 
@@ -137,6 +152,86 @@ Conventions every endpoint follows:
 ```bash
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
+
+## Phase 1 demo
+
+This takes one Customer from signing up as an Organizer to a published, priced Show that anyone can browse. Start the stack as in the [Quickstart](#quickstart). You'll need `curl` and `jq`.
+
+**1. Fetch a Customer token** with the dev CLI client:
+
+```bash
+token() {
+  curl -s -d grant_type=password -d client_id=getmyseat-dev-cli -d username="$1" -d password=password \
+    localhost:8180/realms/getmyseat/protocol/openid-connect/token | jq -r .access_token
+}
+api() {  # api METHOD PATH TOKEN [JSON]
+  local args=(-s -X "$1" "localhost:8080/api/v1$2" -H "Authorization: Bearer $3")
+  if [ -n "$4" ]; then args+=(-H 'Content-Type: application/json' -d "$4"); fi
+  curl "${args[@]}"
+}
+CUSTOMER=$(token customer)
+api GET /me "$CUSTOMER" | jq .roles   # ["CUSTOMER"]
+```
+
+**2. Apply to become an Organizer:**
+
+```bash
+APPLICATION=$(api POST /organizer-applications "$CUSTOMER" \
+  '{"organisationName":"Sunburn Live","contactPhone":"+91 98200 00000","description":"Concerts in Mumbai."}' | jq -r .id)
+```
+
+**3. Approve the application as the seed Admin:**
+
+```bash
+ADMIN=$(token platform-admin)
+api GET '/admin/organizer-applications?status=PENDING' "$ADMIN" | jq '.content[].organisationName'
+api POST "/admin/organizer-applications/$APPLICATION/approve" "$ADMIN" | jq .status   # "APPROVED"
+```
+
+**4. Refresh the token and see `ORGANIZER`.** Roles come from the token, so the old one doesn't have it yet:
+
+```bash
+ORGANIZER=$(token customer)
+api GET /me "$ORGANIZER" | jq .roles   # ["CUSTOMER","ORGANIZER"]
+```
+
+**5. Propose a Venue and get it approved.** It has a Seated Section with two rows and a General Admission Section:
+
+```bash
+VENUE=$(api POST /venues "$ORGANIZER" \
+  '{"name":"NSCI Dome","address":"Lala Lajpatrai Marg, Worli","city":"Mumbai","timeZone":"Asia/Kolkata"}' | jq -r .id)
+STALLS=$(api POST "/venues/$VENUE/sections" "$ORGANIZER" \
+  '{"name":"Stalls","kind":"SEATED","rows":[{"label":"A","seatCount":10},{"label":"B","seatCount":10}]}' | jq -r .id)
+PIT=$(api POST "/venues/$VENUE/sections" "$ORGANIZER" \
+  '{"name":"Fan Pit","kind":"GENERAL_ADMISSION","capacity":500}' | jq -r .id)
+api POST "/venues/$VENUE/submit" "$ORGANIZER" | jq .status        # "PENDING_REVIEW"
+api POST "/admin/venues/$VENUE/approve" "$ADMIN" | jq .status     # "APPROVED"
+```
+
+**6. Create and publish an Event and a priced Show:**
+
+```bash
+EVENT=$(api POST /events "$ORGANIZER" \
+  '{"title":"Coldplay: Music of the Spheres","description":"The world tour comes to Mumbai.","category":"MUSIC","language":"en"}' | jq -r .id)
+api POST "/events/$EVENT/publish" "$ORGANIZER" | jq .status       # "PUBLISHED"
+STARTS_AT=$(date -u -v+30d +%Y-%m-%dT14:30:00Z 2>/dev/null || date -u -d +30days +%Y-%m-%dT14:30:00Z)
+SHOW=$(api POST "/events/$EVENT/shows" "$ORGANIZER" "{\"venueId\":\"$VENUE\",\"startsAt\":\"$STARTS_AT\"}" | jq -r .id)
+api PUT "/shows/$SHOW/prices" "$ORGANIZER" "{\"prices\":[
+  {\"sectionId\":\"$STALLS\",\"amountPaise\":450000,\"currency\":\"INR\"},
+  {\"sectionId\":\"$PIT\",\"amountPaise\":250000,\"currency\":\"INR\"}]}" | jq '.prices | length'   # 2
+api POST "/shows/$SHOW/publish" "$ORGANIZER" | jq .status         # "PUBLISHED"
+echo "Event $EVENT, Show $SHOW"
+```
+
+**7. Browse it anonymously in Swagger UI.** Open http://localhost:8080/swagger-ui.html without authorizing, and try:
+
+- `GET /api/v1/events` with `city` = `mumbai` and `category` = `MUSIC`. The Event appears because it has an upcoming published Show in Mumbai.
+- `GET /api/v1/events/{eventId}/shows` with the Event's id. The Show is listed with its Venue's name, city and time zone.
+- `GET /api/v1/shows/{id}` with the Show's id. Stalls lists its 20 Seats at ₹4,500 (`450000` paise), and Fan Pit has a capacity of 500 at ₹2,500.
+
+The same calls work with curl and no token, for example `curl -s 'localhost:8080/api/v1/events?city=mumbai' | jq`.
+
+Afterwards the seed `customer` is an Organizer, so applying again returns `409`. To run the demo from scratch, reset the stack with `docker compose down -v` and start it again.
 
 ## Local credentials (dev only)
 

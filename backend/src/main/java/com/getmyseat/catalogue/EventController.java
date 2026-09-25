@@ -1,11 +1,13 @@
 package com.getmyseat.catalogue;
 
 import java.net.URI;
+import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -26,6 +28,7 @@ import com.getmyseat.shared.api.InvalidRequestException;
 import com.getmyseat.shared.api.SortAllowList;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -92,17 +95,22 @@ class EventController {
 	@PreAuthorize("hasRole('ORGANIZER')")
 	@Operation(summary = "Your Events, drafts included, newest first")
 	Page<EventResponse> mine(Caller organizer,
-			@PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+			@ParameterObject @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 		return this.service.mine(organizer, MINE_SORTABLE.check(pageable));
 	}
 
 	@GetMapping
 	@SecurityRequirements
 	@Operation(summary = "Search published Events, most recently published first",
-			description = "Public. q matches part of the title or description, ignoring case.")
+			description = "Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone.")
 	Page<EventResponse> search(@RequestParam(required = false) @Nullable String q,
-			@PageableDefault(sort = "publishedAt", direction = Sort.Direction.DESC) Pageable pageable) {
-		return this.service.search(q, PUBLIC_SORTABLE.check(pageable));
+			@RequestParam(required = false) @Nullable String city,
+			@RequestParam(required = false) Event.@Nullable Category category,
+			@Parameter(description = "ISO date such as 2026-10-01") @RequestParam(required = false) @Nullable LocalDate from,
+			@Parameter(description = "ISO date such as 2026-10-31") @RequestParam(required = false) @Nullable LocalDate to,
+			@ParameterObject @PageableDefault(sort = "publishedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+		return this.service.search(new EventRepository.Filters(q, city, category, from, to),
+				PUBLIC_SORTABLE.check(pageable));
 	}
 
 	@GetMapping("/{id}")

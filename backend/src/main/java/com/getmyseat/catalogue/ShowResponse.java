@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
 /**
- * What the Show endpoints return. Built inside the service's transaction, since the prices load lazily.
+ * What the Organizer's Show endpoints return. Built inside the service's transaction, since the prices load lazily.
  * @param prices one Section Price per priced Section of the Venue
  * @param version pass it back when editing, so a concurrent edit is detected
  */
