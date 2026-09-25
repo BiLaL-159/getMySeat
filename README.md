@@ -65,7 +65,7 @@ Approving an Organizer Application grants the `ORGANIZER` realm role through the
 
 ## API
 
-Everything lives under `/api/v1` and needs a Keycloak access token (`Authorization: Bearer ...`) unless noted.
+Everything lives under `/api/v1` and needs a Keycloak access token (`Authorization: Bearer ...`) unless it's marked Public. Public endpoints still read a token if you send one, so an owner can see their own drafts.
 
 - **Swagger UI:** http://localhost:8080/swagger-ui.html (public; use *Authorize* to paste a token). The OpenAPI spec is at `/v3/api-docs`.
 - **Who am I:** `GET /api/v1/me` returns your subject, name, email and GetMySeat roles. Roles come from the token, so a newly granted role appears only after the token is refreshed.
@@ -90,6 +90,25 @@ A Customer applies to become an Organizer, and an Admin decides.
 | `POST /api/v1/admin/organizer-applications/{id}/reject` | Admin | Rejects with a required `reason`. |
 
 Deciding an application that's already decided returns `409`, including when two Admins act at once. Every decision records the Admin's subject and when it was made. The applicant sees `ORGANIZER` in `GET /api/v1/me` after their token is refreshed.
+
+### Venues
+
+An Organizer proposes a Venue with its Section layout, and an Admin approves it. Once a Venue is approved its layout is fixed and any Organizer can use it.
+
+| Endpoint | Who | What |
+|---|---|---|
+| `POST /api/v1/venues`, `PUT /api/v1/venues/{id}` | Organizer | Create a draft (`name`, `address`, `city`, IANA `timeZone`) or change its details. |
+| `POST /api/v1/venues/{id}/sections` | Organizer | Add a Section. `SEATED` Sections take `rows`, each a letter label plus either `seatCount` (Seats 1 to n) or `seatNumbers`. `GENERAL_ADMISSION` Sections take a `capacity` instead. |
+| `PUT`, `DELETE /api/v1/venues/{id}/sections/{sectionId}` | Organizer | Rename a Section, change its capacity, or remove it. |
+| `POST /api/v1/venues/{id}/sections/{sectionId}/seats`, `DELETE .../seats/{seatId}` | Organizer | Add rows of Seats, or remove one Seat. |
+| `POST /api/v1/venues/{id}/submit` | Organizer | Send it for review. It needs at least one Section, and Seats in every Seated Section. |
+| `GET /api/v1/venues/mine` | Organizer | Your Venues in any status. |
+| `GET /api/v1/admin/venues?status=` | Admin | Venues with their full layout, oldest submission first. |
+| `POST /api/v1/admin/venues/{id}/approve`, `.../reject` | Admin | Decide. A rejection needs a `reason`, and the Organizer can fix the Venue and resubmit. |
+| `GET /api/v1/venues?q=&city=` | Public | Search approved Venues. `q` matches part of the name and `city` the whole city, both ignoring case. |
+| `GET /api/v1/venues/{id}` | Public | A Venue's Sections and Seats. Approved Venues only, unless you're the owner or an Admin. |
+
+Status goes `DRAFT → PENDING_REVIEW → APPROVED | REJECTED`, and back to `PENDING_REVIEW` when a rejected Venue is resubmitted. The layout can change only in `DRAFT` or `REJECTED`, so any other change is `409`. Section names are unique within a Venue, and Seat labels (row plus number, such as `A12`) are unique within a Section. Someone else's unapproved Venue is `404` to you, and changing someone else's approved Venue is `403`. Seats keep their ids once the Venue is approved.
 
 ### Events
 
