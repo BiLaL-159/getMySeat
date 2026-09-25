@@ -54,7 +54,7 @@ class SecurityConfiguration implements WebMvcConfigurer {
 				.requestMatchers("/error")
 				.permitAll()
 				// Public catalogue reads. Owner-only reads under these paths still check the role on the method.
-				.requestMatchers(HttpMethod.GET, "/api/v1/events/mine")
+				.requestMatchers(HttpMethod.GET, "/api/v1/venues/mine", "/api/v1/events/mine")
 				.authenticated()
 				.requestMatchers(HttpMethod.GET, "/api/v1/venues", "/api/v1/venues/*", "/api/v1/events",
 						"/api/v1/events/*")
