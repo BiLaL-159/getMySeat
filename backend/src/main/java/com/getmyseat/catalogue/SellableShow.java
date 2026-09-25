@@ -21,11 +21,20 @@ public record SellableShow(UUID id, boolean published, Instant startsAt, List<Se
 
 	/**
 	 * @param capacity how many people a General Admission Section holds; {@code null} for a Seated Section
-	 * @param seatIds the Seats of a Seated Section, in the order they were defined; empty for General Admission
+	 * @param seats the Seats of a Seated Section, in the order they were defined; empty for General Admission
 	 * @param price the Section Price; {@code null} only while a draft Show is still being priced
 	 */
-	public record SellableSection(UUID id, Kind kind, @Nullable Integer capacity, List<UUID> seatIds,
+	public record SellableSection(UUID id, Kind kind, @Nullable Integer capacity, List<SellableSeat> seats,
 			@Nullable Price price) {
+
+		public List<UUID> seatIds() {
+			return this.seats.stream().map(SellableSeat::id).toList();
+		}
+
+	}
+
+	/** A Seat as a Customer sees it on a ticket, such as row {@code A}, seat {@code 12}. */
+	public record SellableSeat(UUID id, String rowLabel, int number) {
 	}
 
 	/** @param amountPaise whole paise, so {@code 50000} is ₹500 */

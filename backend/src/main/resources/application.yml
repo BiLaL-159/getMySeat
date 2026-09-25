@@ -44,6 +44,9 @@ getmyseat:
     client-secret: ${KEYCLOAK_BACKEND_CLIENT_SECRET:getmyseat-backend-dev-secret}
     # Per request; an approval fails with 503 rather than hang when Keycloak is slow or down.
     timeout: ${KEYCLOAK_TIMEOUT:5s}
+  holds:
+    # How long a Hold keeps its Seats and General Admission places before it expires.
+    hold-time: ${HOLD_TIME:10m}
 
 management:
   endpoints:

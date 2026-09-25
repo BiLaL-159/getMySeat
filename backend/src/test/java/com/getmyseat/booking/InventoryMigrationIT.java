@@ -137,9 +137,14 @@ class InventoryMigrationIT {
 		assertViolation("UPDATE seat_inventory SET status = 'HELD' WHERE show_id = ?", show);
 		assertViolation("UPDATE seat_inventory SET hold_id = gen_random_uuid() WHERE show_id = ?", show);
 		assertViolation("UPDATE seat_inventory SET status = 'BOOKED' WHERE show_id = ?", show);
-		sql.sql("UPDATE seat_inventory SET status = 'HELD', hold_id = gen_random_uuid() WHERE show_id = ?")
-			.param(show)
-			.update();
+		assertViolation("UPDATE seat_inventory SET status = 'HELD', hold_id = gen_random_uuid() WHERE show_id = ?", show);
+		UUID hold = UUID.randomUUID();
+		sql.sql("""
+				INSERT INTO hold (id, customer_subject, show_id, status, expires_at, created_at, total_paise, currency,
+				  version)
+				VALUES (?, ?, ?, 'ACTIVE', now() + interval '10 minutes', now(), 50000, 'INR', 0)
+				""").params(hold, UUID.randomUUID(), show).update();
+		sql.sql("UPDATE seat_inventory SET status = 'HELD', hold_id = ? WHERE show_id = ?").params(hold, show).update();
 	}
 
 	private static int count(String table, UUID show) {
