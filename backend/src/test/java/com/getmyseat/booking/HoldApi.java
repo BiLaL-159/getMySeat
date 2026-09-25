@@ -85,6 +85,14 @@ final class HoldApi {
 		return send("GET", "/api/v1/holds/" + hold, token, "");
 	}
 
+	RestTestClient.ResponseSpec release(String hold, @Nullable String token) {
+		return send("POST", "/api/v1/holds/" + hold + "/release", token, "");
+	}
+
+	RestTestClient.ResponseSpec mine(String show, @Nullable String token) {
+		return send("GET", "/api/v1/shows/" + show + "/holds/mine", token, "");
+	}
+
 	JsonNode availability(String show) {
 		return read(this.shows.get("/api/v1/shows/" + show + "/availability", null).expectStatus().isOk());
 	}
