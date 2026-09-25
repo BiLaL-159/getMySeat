@@ -57,6 +57,19 @@ class KeycloakRealmIT {
 		assertThat(realmRolesOf(passwordGrantToken("customer"))).doesNotContain("ORGANIZER", "ADMIN");
 	}
 
+	@Test
+	void tokensAreIssuedForTheGetMySeatApi() throws Exception {
+		JsonNode audience = claimsOf(passwordGrantToken("customer")).path("aud");
+		List<String> audiences = new ArrayList<>();
+		if (audience.isArray()) {
+			audience.forEach(a -> audiences.add(a.asString()));
+		}
+		else {
+			audiences.add(audience.asString());
+		}
+		assertThat(audiences).contains("getmyseat-api");
+	}
+
 	private static String passwordGrantToken(String username) throws Exception {
 		String form = Map.of("grant_type", "password", "client_id", "getmyseat-dev-cli", "username", username,
 				"password", "password")
@@ -76,10 +89,13 @@ class KeycloakRealmIT {
 		return JSON.readTree(response.body()).path("access_token").asString();
 	}
 
+	private static JsonNode claimsOf(String accessToken) {
+		return JSON.readTree(new String(Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]), StandardCharsets.UTF_8));
+	}
+
 	private static List<String> realmRolesOf(String accessToken) {
-		String payload = new String(Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]), StandardCharsets.UTF_8);
 		List<String> roles = new ArrayList<>();
-		JSON.readTree(payload).path("realm_access").path("roles").forEach(r -> roles.add(r.asString()));
+		claimsOf(accessToken).path("realm_access").path("roles").forEach(r -> roles.add(r.asString()));
 		return roles;
 	}
 

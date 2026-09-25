@@ -11,6 +11,24 @@ spring:
     hibernate:
       # Flyway owns the schema; Hibernate only checks entities against it.
       ddl-auto: validate
+  data:
+    web:
+      pageable:
+        # page is 0-based; larger sizes are clamped to the maximum.
+        default-page-size: 20
+        max-page-size: 100
+        # Pages serialize as { content, page: { number, size, totalElements, totalPages } }.
+        serialization-mode: via-dto
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # The iss claim tokens must carry. Defaults to the compose Keycloak realm, as seen from the host.
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8180/realms/getmyseat}
+          # Where signing keys are fetched from; differs from the issuer when Keycloak is reached on an
+          # internal address (e.g. inside docker compose). Fetched lazily, so the app boots without Keycloak.
+          jwk-set-uri: ${JWT_JWK_SET_URI:${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/certs}
+          audiences: ${JWT_AUDIENCE:getmyseat-api}
 
 management:
   endpoints:

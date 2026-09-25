@@ -50,10 +50,16 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/getmyseat
       DB_USERNAME: getmyseat
       DB_PASSWORD: getmyseat
+      # Tokens are issued to clients on the host, so their iss is the host URL; the backend fetches
+      # signing keys over the compose network instead.
+      JWT_ISSUER_URI: http://localhost:8180/realms/getmyseat
+      JWT_JWK_SET_URI: http://keycloak:8080/realms/getmyseat/protocol/openid-connect/certs
     ports:
       - "8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     healthcheck:
       # /bin/sh in the JRE image is dash, which has no /dev/tcp; use bash explicitly.

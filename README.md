@@ -4,7 +4,7 @@
 
 A live-event ticketing platform. Organizers list Events and schedule Shows at Venues; Customers hold and pay for tickets, either numbered Seats or General Admission capacity, without any seat ever being sold twice.
 
-> **Status:** Phase 0, foundations. The skeleton, local stack and CI are in place; domain features start in Phase 1.
+> **Status:** Phase 1 in progress. The API validates Keycloak tokens and has its shared conventions (errors, pagination, OpenAPI); catalogue features are next.
 
 ## Stack
 
@@ -45,6 +45,35 @@ cd backend && ./mvnw spring-boot:run
 
 The datasource defaults to the compose Postgres; override it with `DB_URL`, `DB_USERNAME` and `DB_PASSWORD`.
 
+Token validation defaults to the compose Keycloak realm:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `JWT_ISSUER_URI` | `http://localhost:8180/realms/getmyseat` | The `iss` every access token must carry |
+| `JWT_JWK_SET_URI` | `${JWT_ISSUER_URI}/protocol/openid-connect/certs` | Where signing keys are fetched (lazily, so the app boots without Keycloak) |
+| `JWT_AUDIENCE` | `getmyseat-api` | The `aud` every access token must carry |
+
+## API
+
+Everything lives under `/api/v1` and needs a Keycloak access token (`Authorization: Bearer ...`) unless noted.
+
+- **Swagger UI:** http://localhost:8080/swagger-ui.html (public; use *Authorize* to paste a token). The OpenAPI spec is at `/v3/api-docs`.
+- **Who am I:** `GET /api/v1/me` returns your subject, name, email and GetMySeat roles. Roles come from the token, so a newly granted role appears only after the token is refreshed.
+
+```bash
+TOKEN=$(curl -s -d grant_type=password -d client_id=getmyseat-dev-cli \
+  -d username=customer -d password=password \
+  localhost:8180/realms/getmyseat/protocol/openid-connect/token | jq -r .access_token)
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/api/v1/me
+```
+
+Conventions every endpoint follows:
+
+- **Errors** are RFC 9457 `ProblemDetail` bodies (`application/problem+json`) with a stable `type`: `urn:getmyseat:problem:validation` (`400`, with an `errors` array of `{field, message}`), `malformed-request` (`400`, a body that isn't valid JSON), `unauthorized` (`401`), `forbidden` (`403`), `not-found` (`404`), `method-not-allowed` (`405`), `conflict` (`409`), `upstream-unavailable` (`503`) and `internal-error` (`500`, never with internal details).
+- **Pagination:** `page` is 0-based, `size` defaults to 20 and is capped at 100, and `sort` is checked against a per-endpoint allow-list. Pages come back as `{ "content": [...], "page": { "number", "size", "totalElements", "totalPages" } }`.
+- Authentication is checked before routing, so an anonymous call to a route that doesn't exist gets `401`, not `404`.
+- The API is stateless (no sessions or cookies), so CSRF protection is off.
+
 ### Frontend
 
 ```bash
@@ -63,7 +92,7 @@ These exist only in the local stack. Never reuse them anywhere else.
 | Seed Admin | `platform-admin` | `password` |
 | PostgreSQL | `getmyseat` | `getmyseat` |
 
-The realm defines the `CUSTOMER`, `ORGANIZER` and `ADMIN` realm roles. Everyone who registers gets `CUSTOMER`. The realm has two clients:
+The realm defines the `CUSTOMER`, `ORGANIZER` and `ADMIN` realm roles. Everyone who registers gets `CUSTOMER`. The realm has two clients, and both issue access tokens with the `getmyseat-api` audience the backend requires:
 
 - `getmyseat-frontend`: public SPA client using Authorization Code + PKCE.
 - `getmyseat-dev-cli`: **dev only**. It allows the password grant so you can fetch a token with curl:
@@ -83,7 +112,8 @@ cd backend && ./mvnw verify   # needs Docker running
 ```
 
 - `ApplicationHealthIT` boots the full app against PostgreSQL in Testcontainers, runs the Flyway migrations and checks that `/actuator/health` (including the database) is `UP`.
-- `KeycloakRealmIT` boots Keycloak with the committed realm export and checks that each seed user gets a token carrying the right realm role.
+- `KeycloakRealmIT` boots Keycloak with the committed realm export and checks that each seed user gets a token carrying the right realm role and the `getmyseat-api` audience.
+- API tests are annotated `@ApiIntegrationTest`: the full app against Testcontainers Postgres, called over HTTP with a `RestTestClient`. `TestJwts` stands in for Keycloak, minting signed tokens per request (any subject, name, email and roles) and serving their signing key, so the real token validation runs without a live Keycloak.
 
 ## Repository layout
 
