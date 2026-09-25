@@ -137,8 +137,9 @@ A Show is one occurrence of an Event at an approved Venue. The Event's owner sch
 | `POST /api/v1/shows/{id}/publish` | Organizer | Needs a published Event, an approved Venue, a future start time and a price for every Section. After this, the Venue, start time and prices are locked. |
 | `GET /api/v1/events/{id}/shows` | Anyone | The Event's upcoming published Shows, soonest first and paginated. Each has its `startsAt` and its `venue` (`id`, `name`, `address`, `city`, `timeZone`). The Event's owner sees every Show, drafts and past ones included. Sort by `startsAt` or `createdAt`. |
 | `GET /api/v1/shows/{id}` | Anyone | A published Show, even after it has started, with its `venue` and every Section in layout order. Each Section has its `kind`, `price`, and either a `capacity` (General Admission) or its `seats` (Seated). Signed in, you also see your own drafts, where a Section may have no `price` yet. |
+| `GET /api/v1/shows/{id}/availability` | Anyone | What's left to sell at a published Show. Every Section in layout order with its `kind`: a Seated Section lists every Seat `id` with `available`, and a General Admission Section has its `capacity` and how many places are `available`. A draft or unknown Show is `404`. |
 
-A draft Show, or a Show of a draft Event, is `404` to everyone but the Event's owner. Changing someone else's published Show is `403`.
+A draft Show, or a Show of a draft Event, is `404` to everyone but the Event's owner. Changing someone else's published Show is `403`. Publishing a Show gives it its own inventory in the same transaction: every Seat available and every General Admission place left.
 
 Conventions every endpoint follows:
 

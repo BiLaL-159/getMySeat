@@ -13,12 +13,12 @@ import com.getmyseat.testsupport.ApiIntegrationTest;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Swagger UI documents every Phase 1 endpoint with its request and response schemas. */
+/** Swagger UI documents every endpoint with its request and response schemas. */
 @ApiIntegrationTest
 class OpenApiDocsIT {
 
-	/** Every Phase 1 operation, as {@code method path}. */
-	static final List<String> PHASE_1 = List.of("get /api/v1/me", "post /api/v1/organizer-applications",
+	/** Every operation, as {@code method path}. */
+	static final List<String> ENDPOINTS = List.of("get /api/v1/me", "post /api/v1/organizer-applications",
 			"get /api/v1/organizer-applications/mine", "get /api/v1/admin/organizer-applications",
 			"post /api/v1/admin/organizer-applications/{id}/approve",
 			"post /api/v1/admin/organizer-applications/{id}/reject", "post /api/v1/venues", "put /api/v1/venues/{id}",
@@ -31,16 +31,17 @@ class OpenApiDocsIT {
 			"put /api/v1/events/{id}", "post /api/v1/events/{id}/publish", "get /api/v1/events/mine",
 			"get /api/v1/events", "get /api/v1/events/{id}", "post /api/v1/events/{eventId}/shows",
 			"put /api/v1/shows/{id}", "put /api/v1/shows/{id}/prices", "post /api/v1/shows/{id}/publish",
-			"get /api/v1/events/{eventId}/shows", "get /api/v1/shows/{id}");
+			"get /api/v1/events/{eventId}/shows", "get /api/v1/shows/{id}",
+			"get /api/v1/shows/{id}/availability");
 
 	@Autowired
 	RestTestClient client;
 
 	@Test
-	void everyPhase1EndpointIsDocumentedWithItsSchemas() {
+	void everyEndpointIsDocumentedWithItsSchemas() {
 		JsonNode spec = spec();
 
-		for (String endpoint : PHASE_1) {
+		for (String endpoint : ENDPOINTS) {
 			String[] parts = endpoint.split(" ");
 			JsonNode operation = spec.path("paths").path(parts[1]).path(parts[0]);
 			assertThat(operation.isObject()).as(endpoint).isTrue();
