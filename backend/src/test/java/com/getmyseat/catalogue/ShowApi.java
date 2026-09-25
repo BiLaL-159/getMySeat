@@ -13,14 +13,17 @@ import com.getmyseat.testsupport.TestJwts;
 
 import tools.jackson.databind.JsonNode;
 
-/** Calls the Show API the way a client would, for tests that need Shows in a given state. */
-final class ShowApi {
+/**
+ * Calls the Show API the way a client would, for tests that need Shows in a given state. Public so other modules' tests
+ * can set up published Shows.
+ */
+public final class ShowApi {
 
 	final EventApi events;
 
 	final VenueApi venues;
 
-	ShowApi(RestTestClient client, TestJwts jwts) {
+	public ShowApi(RestTestClient client, TestJwts jwts) {
 		this.events = new EventApi(client, jwts);
 		this.venues = new VenueApi(client, jwts);
 	}
@@ -39,7 +42,7 @@ final class ShowApi {
 	}
 
 	/** A price in INR for each Section, in the order given. */
-	static String prices(List<String> sections, long... amountsPaise) {
+	public static String prices(List<String> sections, long... amountsPaise) {
 		List<String> prices = new ArrayList<>();
 		for (int i = 0; i < sections.size(); i++) {
 			prices.add("{ \"sectionId\": \"%s\", \"amountPaise\": %d, \"currency\": \"INR\" }".formatted(sections.get(i),
@@ -49,7 +52,7 @@ final class ShowApi {
 	}
 
 	/** An approved Venue, proposed by a fresh Organizer, with the layout from {@link VenueApi#withLayout}. */
-	String approvedVenue() {
+	public String approvedVenue() {
 		String owner = this.venues.jwts.organizer().encode();
 		return this.venues.approve(owner, this.venues.draftWithLayout(owner));
 	}
@@ -63,8 +66,13 @@ final class ShowApi {
 		return this.venues.approve(owner, this.venues.withLayout(owner, venue));
 	}
 
+	/** A fresh published Event of the Organizer with the given token. */
+	public String publishedEvent(String token) {
+		return this.events.publishedEvent(token, EventApi.EVENT);
+	}
+
 	/** The ids of the Venue's Sections, in layout order. */
-	List<String> sections(String venue) {
+	public List<String> sections(String venue) {
 		List<String> ids = new ArrayList<>();
 		VenueApi.read(this.venues.get("/api/v1/venues/" + venue, null).expectStatus().isOk())
 			.path("sections")
@@ -77,16 +85,16 @@ final class ShowApi {
 	}
 
 	/** A draft Show of the Event at the Venue, a week from now. */
-	String draftShow(String event, String token, String venue) {
+	public String draftShow(String event, String token, String venue) {
 		return id(schedule(event, token, show(venue, inDays(7))).expectStatus().isCreated());
 	}
 
-	RestTestClient.ResponseSpec setPrices(String show, String token, String body) {
+	public RestTestClient.ResponseSpec setPrices(String show, String token, String body) {
 		return this.events.send("PUT", "/api/v1/shows/" + show + "/prices", token, body);
 	}
 
 	/** Prices every Section of the Venue at ₹500 and returns the Show. */
-	String priced(String show, String token, String venue) {
+	public String priced(String show, String token, String venue) {
 		List<String> sections = sections(venue);
 		long[] amounts = new long[sections.size()];
 		Arrays.fill(amounts, 50_000);
@@ -94,12 +102,12 @@ final class ShowApi {
 		return show;
 	}
 
-	RestTestClient.ResponseSpec publish(String show, String token) {
+	public RestTestClient.ResponseSpec publish(String show, String token) {
 		return this.events.send("POST", "/api/v1/shows/" + show + "/publish", token, "");
 	}
 
 	/** A published Show of a fresh published Event, owned by the Organizer with the given token. */
-	String publishedShow(String token, String venue) {
+	public String publishedShow(String token, String venue) {
 		String event = this.events.publishedEvent(token, EventApi.EVENT);
 		String show = priced(draftShow(event, token, venue), token, venue);
 		publish(show, token).expectStatus().isOk();
@@ -127,11 +135,11 @@ final class ShowApi {
 		return this.events.send("PUT", "/api/v1/shows/" + show, token, body);
 	}
 
-	RestTestClient.ResponseSpec get(String uri, @Nullable String token) {
+	public RestTestClient.ResponseSpec get(String uri, @Nullable String token) {
 		return this.events.get(uri, token);
 	}
 
-	static JsonNode read(RestTestClient.ResponseSpec response) {
+	public static JsonNode read(RestTestClient.ResponseSpec response) {
 		return EventApi.read(response);
 	}
 

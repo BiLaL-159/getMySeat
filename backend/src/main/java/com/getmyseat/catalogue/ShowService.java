@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -28,7 +29,7 @@ import com.getmyseat.shared.api.NotFoundException;
 /**
  * The Show lifecycle. A Show belongs to its Event's owner, and follows the Event's rules: someone else's draft Show
  * is {@code 404} and someone else's published Show is {@code 403} to change. Changes are optimistically locked on
- * the Show's version.
+ * the Show's version. Publishing raises {@link ShowPublished} inside the publishing transaction.
  */
 @Service
 class ShowService {
@@ -39,10 +40,14 @@ class ShowService {
 
 	private final VenueRepository venues;
 
-	ShowService(ShowRepository shows, EventService events, VenueRepository venues) {
+	private final ApplicationEventPublisher publisher;
+
+	ShowService(ShowRepository shows, EventService events, VenueRepository venues,
+			ApplicationEventPublisher publisher) {
 		this.shows = shows;
 		this.events = events;
 		this.venues = venues;
+		this.publisher = publisher;
 	}
 
 	@Transactional
@@ -96,7 +101,9 @@ class ShowService {
 		Show show = owned(id, organizer);
 		Venue venue = venue(show);
 		show.publish(this.events.event(show.eventId()), venue, sectionIds(venue), Instant.now());
-		return ShowResponse.of(save(show));
+		ShowResponse published = ShowResponse.of(save(show));
+		this.publisher.publishEvent(new ShowPublished(show.id()));
+		return published;
 	}
 
 	/** The Event's Shows: all of them for its owner, the upcoming published ones for anyone else. */
