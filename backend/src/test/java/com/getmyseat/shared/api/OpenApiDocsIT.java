@@ -32,7 +32,7 @@ class OpenApiDocsIT {
 			"get /api/v1/events", "get /api/v1/events/{id}", "post /api/v1/events/{eventId}/shows",
 			"put /api/v1/shows/{id}", "put /api/v1/shows/{id}/prices", "post /api/v1/shows/{id}/publish",
 			"get /api/v1/events/{eventId}/shows", "get /api/v1/shows/{id}",
-			"get /api/v1/shows/{id}/availability");
+			"get /api/v1/shows/{id}/availability", "post /api/v1/shows/{id}/holds", "get /api/v1/holds/{id}");
 
 	@Autowired
 	RestTestClient client;
@@ -81,6 +81,21 @@ class OpenApiDocsIT {
 
 		assertThat(schemas.path("VenueSummary").path("properties").has("status")).isTrue();
 		assertThat(schemas.path("ShowVenue").path("properties").has("timeZone")).isTrue();
+	}
+
+	@Test
+	void holdCreationDocumentsTheUnavailableInventoryProblem() {
+		JsonNode spec = spec();
+		JsonNode conflict = spec.at("/paths/~1api~1v1~1shows~1{id}~1holds/post/responses/409");
+
+		assertThat(conflict.path("description").asString()).contains("urn:getmyseat:problem:inventory-unavailable");
+		String schema = conflict.at("/content/application~1problem+json/schema/$ref").asString();
+		JsonNode properties = spec.at("/components/schemas/" + schema.substring(schema.lastIndexOf('/') + 1))
+			.path("properties");
+		assertThat(properties.has("unavailableSeats")).isTrue();
+		assertThat(properties.path("unavailableSections").isObject()).isTrue();
+		assertThat(spec.at("/components/schemas/HoldResponse/properties/status/enum").valueStream().map(JsonNode::asString))
+			.contains("ACTIVE");
 	}
 
 	private JsonNode spec() {

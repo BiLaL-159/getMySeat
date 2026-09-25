@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.getmyseat.catalogue.SellableShow.Price;
+import com.getmyseat.catalogue.SellableShow.SellableSeat;
 import com.getmyseat.catalogue.SellableShow.SellableSection;
 
 /** {@link ShowCatalogue} over the catalogue's own Shows and Venues. */
@@ -38,9 +39,13 @@ class CatalogueShows implements ShowCatalogue {
 				venue.sections()
 					.stream()
 					.map(section -> new SellableSection(section.id(), SellableShow.Kind.valueOf(section.kind().name()),
-							section.capacity(), section.seats().stream().map(Seat::id).toList(),
+							section.capacity(), section.seats().stream().map(CatalogueShows::sellable).toList(),
 							prices.get(section.id())))
 					.toList());
+	}
+
+	private static SellableSeat sellable(Seat seat) {
+		return new SellableSeat(seat.id(), seat.rowLabel(), seat.number());
 	}
 
 }

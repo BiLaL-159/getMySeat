@@ -63,6 +63,8 @@ Approving an Organizer Application grants the `ORGANIZER` realm role through the
 | `KEYCLOAK_BACKEND_CLIENT_SECRET` | `getmyseat-backend-dev-secret` | That client's secret. **Dev only**; always set a real one elsewhere |
 | `KEYCLOAK_TIMEOUT` | `5s` | Per request; a slower Keycloak fails the approval with `503` |
 
+A Hold lasts `HOLD_TIME` (default `10m`, any Spring duration such as `90s`) before it expires.
+
 ## API
 
 Everything lives under `/api/v1` and needs a Keycloak access token (`Authorization: Bearer ...`) unless it's marked Public. Public endpoints still read a token if you send one, so an owner can see their own drafts.
@@ -141,9 +143,18 @@ A Show is one occurrence of an Event at an approved Venue. The Event's owner sch
 
 A draft Show, or a Show of a draft Event, is `404` to everyone but the Event's owner. Changing someone else's published Show is `403`. Publishing a Show gives it its own inventory in the same transaction: every Seat available and every General Admission place left.
 
+### Holds
+
+A signed-in Customer holds tickets at a published Show while they pay. A Hold is all or nothing: every Seat is claimed with a conditional update (`AVAILABLE → HELD`, in Seat id order) and every General Admission quantity with a decrement that only succeeds while enough places are left, all in one PostgreSQL transaction ([ADR 0003](docs/adr/0003-postgres-owns-inventory.md)).
+
+| Endpoint | Who | What it does |
+|---|---|---|
+| `POST /api/v1/shows/{id}/holds` | Customer | Holds `{ "seats": [seatId…], "generalAdmission": [{ "sectionId", "quantity" }…] }`, 1 to 10 tickets in all, and returns `201` with the Hold. Each Seat and Section must be part of the Show's Venue, appear once, and be asked for through the right kind of item (`400` otherwise). If anything is gone, nothing is held and the `409` has the type `urn:getmyseat:problem:inventory-unavailable` with `unavailableSeats` (Seat ids) and `unavailableSections` (`{ sectionId, available }`). A deadlock or serialization failure gets the same `409`, so just retry. A draft or unknown Show is `404`; a Show that has started is `409`. |
+| `GET /api/v1/holds/{id}` | The Hold's Customer | The Hold: `id`, `showId`, `status` (`ACTIVE`), `expiresAt`, `items` in layout order, `totalPaise`, `currency` and `createdAt`. Each item has its `kind` (`SEAT` or `GENERAL_ADMISSION`), `sectionId`, `quantity` (1 for a Seat) and `pricePaise`, the Section Price when the Hold was made; a Seat item also has its `seatId`, `rowLabel` and `seatNumber`. Anyone else's Hold is `404`. |
+
 Conventions every endpoint follows:
 
-- **Errors** are RFC 9457 `ProblemDetail` bodies (`application/problem+json`) with a stable `type`: `urn:getmyseat:problem:validation` (`400`, with an `errors` array of `{field, message}`), `malformed-request` (`400`, a body that isn't valid JSON), `unauthorized` (`401`), `forbidden` (`403`), `not-found` (`404`), `method-not-allowed` (`405`), `conflict` (`409`), `upstream-unavailable` (`503`) and `internal-error` (`500`, never with internal details).
+- **Errors** are RFC 9457 `ProblemDetail` bodies (`application/problem+json`) with a stable `type`: `urn:getmyseat:problem:validation` (`400`, with an `errors` array of `{field, message}`), `malformed-request` (`400`, a body that isn't valid JSON), `unauthorized` (`401`), `forbidden` (`403`), `not-found` (`404`), `method-not-allowed` (`405`), `conflict` (`409`), `inventory-unavailable` (`409`, see [Holds](#holds)), `upstream-unavailable` (`503`) and `internal-error` (`500`, never with internal details).
 - **Pagination:** `page` is 0-based, `size` defaults to 20 and is capped at 100, and `sort` is checked against a per-endpoint allow-list. Pages come back as `{ "content": [...], "page": { "number", "size", "totalElements", "totalPages" } }`.
 - Authentication is checked before routing, so an anonymous call to a route that doesn't exist gets `401`, not `404`.
 - The API is stateless (no sessions or cookies), so CSRF protection is off.

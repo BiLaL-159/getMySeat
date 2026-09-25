@@ -70,7 +70,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler(ConflictException.class)
 	ResponseEntity<ProblemDetail> handleConflict(ConflictException ex) {
-		return problem(HttpStatus.CONFLICT, ProblemTypes.CONFLICT, ex.getMessage());
+		ProblemDetail problem = problemDetail(HttpStatus.CONFLICT, ex.type(), ex.getMessage());
+		ex.properties().forEach(problem::setProperty);
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
 	}
 
 	@ExceptionHandler(UpstreamUnavailableException.class)

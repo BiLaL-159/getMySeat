@@ -1,7 +1,11 @@
 package com.getmyseat.booking;
 
+import java.sql.PreparedStatement;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -42,6 +46,52 @@ class ShowInventory {
 						show.id(), section.id(), section.capacity(), section.capacity());
 			}
 		}
+	}
+
+	/**
+	 * Marks those of the Show's Seats that are still available as held by the Hold. Takes the row locks in Seat id
+	 * order, so overlapping Holds queue up rather than deadlock.
+	 * @return the Seats that were claimed
+	 */
+	List<UUID> holdSeats(UUID show, UUID hold, Collection<UUID> seats) {
+		if (seats.isEmpty()) {
+			return List.of();
+		}
+		return this.jdbc.query(connection -> {
+			PreparedStatement statement = connection.prepareStatement("""
+					WITH claimable AS (
+					    SELECT seat_id FROM seat_inventory
+					    WHERE show_id = ? AND seat_id = ANY (?) AND status = 'AVAILABLE'
+					    ORDER BY seat_id
+					    FOR UPDATE
+					)
+					UPDATE seat_inventory SET status = 'HELD', hold_id = ?
+					FROM claimable
+					WHERE seat_inventory.show_id = ? AND seat_inventory.seat_id = claimable.seat_id
+					RETURNING seat_inventory.seat_id
+					""");
+			statement.setObject(1, show);
+			statement.setArray(2, connection.createArrayOf("uuid", seats.toArray()));
+			statement.setObject(3, hold);
+			statement.setObject(4, show);
+			return statement;
+		}, (row, rowNumber) -> row.getObject("seat_id", UUID.class));
+	}
+
+	/**
+	 * Takes {@code quantity} places from the Show's General Admission Section, only if that many are left.
+	 * @return empty if they were taken; otherwise how many places are left
+	 */
+	OptionalInt holdPlaces(UUID show, UUID section, int quantity) {
+		int taken = this.jdbc.update(
+				"UPDATE general_admission_inventory SET available = available - ? WHERE show_id = ? AND section_id = ? AND available >= ?",
+				quantity, show, section, quantity);
+		if (taken == 1) {
+			return OptionalInt.empty();
+		}
+		return OptionalInt.of(this.jdbc.queryForObject(
+				"SELECT available FROM general_admission_inventory WHERE show_id = ? AND section_id = ?", Integer.class,
+				show, section));
 	}
 
 	/** Whether each of the Show's Seats is available, by Seat id. */

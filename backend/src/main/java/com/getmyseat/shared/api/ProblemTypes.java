@@ -19,6 +19,9 @@ public final class ProblemTypes {
 
 	public static final URI CONFLICT = of("conflict");
 
+	/** Some of the Seats or General Admission places asked for are gone; nothing was held. */
+	public static final URI INVENTORY_UNAVAILABLE = of("inventory-unavailable");
+
 	public static final URI UPSTREAM_UNAVAILABLE = of("upstream-unavailable");
 
 	public static final URI INTERNAL_ERROR = of("internal-error");
