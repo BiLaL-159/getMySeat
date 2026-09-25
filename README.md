@@ -91,6 +91,21 @@ A Customer applies to become an Organizer, and an Admin decides.
 
 Deciding an application that's already decided returns `409`, including when two Admins act at once. Every decision records the Admin's subject and when it was made. The applicant sees `ORGANIZER` in `GET /api/v1/me` after their token is refreshed.
 
+### Events
+
+An Organizer creates Events as drafts, edits them and publishes them. Drafts are private to their owner; published Events are public.
+
+| Endpoint | Who | What |
+| --- | --- | --- |
+| `POST /api/v1/events` | Organizer | Create a draft with `title`, `description`, `category` (`MUSIC`, `COMEDY`, `THEATRE`, `DANCE`, `SPORTS`, `CONFERENCE`, `WORKSHOP`, `FAMILY` or `OTHER`) and `language` (an ISO 639-1 code such as `en`). |
+| `PUT /api/v1/events/{id}` | Organizer | Edit your Event, draft or published. Send the same fields plus the `version` you last read; if the Event changed since, you get `409` and should reload it. |
+| `POST /api/v1/events/{id}/publish` | Organizer | `DRAFT → PUBLISHED`. `409` if it's already published. |
+| `GET /api/v1/events/mine` | Organizer | Your Events, drafts included, newest first and paginated. Sort by `createdAt` or `title`. |
+| `GET /api/v1/events?q=` | Anyone | Published Events, most recently published first and paginated. `q` matches part of the title or description, ignoring case. Sort by `publishedAt` or `title`. |
+| `GET /api/v1/events/{id}` | Anyone | A published Event. Signed in, you also see your own drafts. |
+
+Someone else's draft is `404` to every caller, and changing someone else's published Event is `403`. Only the owner sees `ownerSubject`.
+
 Conventions every endpoint follows:
 
 - **Errors** are RFC 9457 `ProblemDetail` bodies (`application/problem+json`) with a stable `type`: `urn:getmyseat:problem:validation` (`400`, with an `errors` array of `{field, message}`), `malformed-request` (`400`, a body that isn't valid JSON), `unauthorized` (`401`), `forbidden` (`403`), `not-found` (`404`), `method-not-allowed` (`405`), `conflict` (`409`), `upstream-unavailable` (`503`) and `internal-error` (`500`, never with internal details).
