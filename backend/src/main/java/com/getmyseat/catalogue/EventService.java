@@ -38,8 +38,8 @@ class EventService {
 	}
 
 	@Transactional
-	Event create(Caller organizer, Event.Details details) {
-		return this.events.saveAndFlush(new Event(organizer.subject(), checked(details), Instant.now()));
+	EventResponse create(Caller organizer, Event.Details details) {
+		return EventResponse.of(this.events.saveAndFlush(new Event(organizer.subject(), checked(details), Instant.now())));
 	}
 
 	/**
@@ -47,38 +47,42 @@ class EventService {
 	 * @throws ConflictException if the Event has changed since
 	 */
 	@Transactional
-	Event change(UUID id, Caller organizer, Event.Details details, long version) {
+	EventResponse change(UUID id, Caller organizer, Event.Details details, long version) {
 		Event event = owned(id, organizer);
 		if (event.version() != version) {
 			throw changedMeanwhile();
 		}
 		event.change(checked(details));
-		return save(event);
+		return EventResponse.of(save(event));
 	}
 
 	@Transactional
-	Event publish(UUID id, Caller organizer) {
+	EventResponse publish(UUID id, Caller organizer) {
 		Event event = owned(id, organizer);
 		event.publish(Instant.now());
-		return save(event);
+		return EventResponse.of(save(event));
 	}
 
 	@Transactional(readOnly = true)
-	Page<Event> mine(Caller organizer, Pageable pageable) {
-		return this.events.findByOwnerSubject(organizer.subject(), withTieBreaker(pageable));
+	Page<EventResponse> mine(Caller organizer, Pageable pageable) {
+		return this.events.findByOwnerSubject(organizer.subject(), withTieBreaker(pageable)).map(EventResponse::of);
 	}
 
 	@Transactional(readOnly = true)
-	Page<Event> search(@Nullable String q, Pageable pageable) {
-		return this.events.findAll(EventRepository.published(q), withTieBreaker(pageable));
+	Page<EventResponse> search(@Nullable String q, Pageable pageable) {
+		return this.events.findAll(EventRepository.published(q), withTieBreaker(pageable))
+			.map(event -> EventResponse.of(event).withoutOwner());
 	}
 
 	/** A published Event for anyone; its owner also sees it as a draft. */
 	@Transactional(readOnly = true)
-	Event visible(UUID id, Optional<Caller> caller) {
+	EventResponse visible(UUID id, Optional<Caller> caller) {
 		Event event = this.events.findById(id).orElseThrow(EventService::notFound);
-		if (event.status() == Event.Status.PUBLISHED || caller.filter(c -> event.isOwnedBy(c.subject())).isPresent()) {
-			return event;
+		if (caller.filter(c -> event.isOwnedBy(c.subject())).isPresent()) {
+			return EventResponse.of(event);
+		}
+		if (event.status() == Event.Status.PUBLISHED) {
+			return EventResponse.of(event).withoutOwner();
 		}
 		throw notFound();
 	}
