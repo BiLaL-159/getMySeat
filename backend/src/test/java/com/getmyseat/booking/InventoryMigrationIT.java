@@ -147,6 +147,28 @@ class InventoryMigrationIT {
 		sql.sql("UPDATE seat_inventory SET status = 'HELD', hold_id = ? WHERE show_id = ?").params(hold, show).update();
 	}
 
+	@Test
+	void aCustomerHasAtMostOneActiveHoldPerShow() {
+		UUID customer = UUID.randomUUID();
+		UUID show = UUID.randomUUID();
+		insertHold(customer, show, "RELEASED");
+		insertHold(customer, show, "ACTIVE");
+		insertHold(customer, UUID.randomUUID(), "ACTIVE");
+		insertHold(UUID.randomUUID(), show, "ACTIVE");
+
+		assertThatThrownBy(() -> insertHold(customer, show, "ACTIVE"))
+			.isInstanceOf(DataIntegrityViolationException.class);
+		insertHold(customer, show, "EXPIRED");
+	}
+
+	private static void insertHold(UUID customer, UUID show, String status) {
+		sql.sql("""
+				INSERT INTO hold (id, customer_subject, show_id, status, expires_at, created_at, total_paise, currency,
+				  version)
+				VALUES (?, ?, ?, ?, now() + interval '10 minutes', now(), 50000, 'INR', 0)
+				""").params(UUID.randomUUID(), customer, show, status).update();
+	}
+
 	private static int count(String table, UUID show) {
 		return sql.sql("SELECT count(*) FROM " + table + " WHERE show_id = ?").param(show).query(Integer.class).single();
 	}

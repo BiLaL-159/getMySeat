@@ -32,7 +32,8 @@ class OpenApiDocsIT {
 			"get /api/v1/events", "get /api/v1/events/{id}", "post /api/v1/events/{eventId}/shows",
 			"put /api/v1/shows/{id}", "put /api/v1/shows/{id}/prices", "post /api/v1/shows/{id}/publish",
 			"get /api/v1/events/{eventId}/shows", "get /api/v1/shows/{id}",
-			"get /api/v1/shows/{id}/availability", "post /api/v1/shows/{id}/holds", "get /api/v1/holds/{id}");
+			"get /api/v1/shows/{id}/availability", "post /api/v1/shows/{id}/holds", "get /api/v1/holds/{id}",
+			"post /api/v1/holds/{id}/release", "get /api/v1/shows/{id}/holds/mine");
 
 	@Autowired
 	RestTestClient client;
@@ -50,7 +51,7 @@ class OpenApiDocsIT {
 				.as(endpoint + " parameters")
 				.doesNotContain("caller", "organizer", "admin", "customer", "pageable");
 			if (!parts[0].equals("get") && !parts[0].equals("delete") && !parts[1].endsWith("/publish")
-					&& !parts[1].endsWith("/submit") && !parts[1].endsWith("/approve")) {
+					&& !parts[1].endsWith("/release") && !parts[1].endsWith("/submit") && !parts[1].endsWith("/approve")) {
 				assertThat(operation.at("/requestBody/content/application~1json/schema").isObject())
 					.as(endpoint + " request schema")
 					.isTrue();

@@ -13,6 +13,8 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,13 +31,17 @@ import com.getmyseat.shared.api.InvalidRequestException;
 import com.getmyseat.shared.api.NotFoundException;
 
 /**
- * Creates and reads Holds. A Hold claims its inventory with conditional updates in one transaction, all or nothing
- * (ADR 0003): if anything asked for is gone, the transaction rolls back and nothing is held.
+ * Creates, reads and releases Holds. A Hold claims its inventory with conditional updates in one transaction, all or
+ * nothing (ADR 0003): if anything asked for is gone, the transaction rolls back and nothing is held. A Customer has at
+ * most one active Hold per Show, so a new Hold releases the old one in the same transaction.
  */
 @Service
 class HoldService {
 
 	static final int MAX_TICKETS = 10;
+
+	/** The unique index that allows one active Hold per Customer per Show. */
+	private static final String ONE_ACTIVE_HOLD = "hold_one_active_per_customer_show";
 
 	/** Some General Admission places in one Section, as asked for. */
 	record Places(UUID sectionId, int quantity) {
@@ -63,8 +69,9 @@ class HoldService {
 	/**
 	 * @throws NotFoundException for a draft or unknown Show
 	 * @throws InvalidRequestException for the first Seat or General Admission item that breaks a rule
-	 * @throws ConflictException if the Show has started
-	 * @throws InventoryUnavailableException naming everything that couldn't be held
+	 * @throws ConflictException if the Show has started, or the Customer is making another Hold for it right now
+	 * @throws InventoryUnavailableException naming everything that couldn't be held; the Customer's previous Hold
+	 * for the Show is still active
 	 */
 	@Transactional
 	HoldResponse create(UUID showId, Caller customer, List<UUID> seats, List<Places> places) {
@@ -76,8 +83,21 @@ class HoldService {
 		if (!now.isBefore(show.startsAt())) {
 			throw new ConflictException("The Show has already started.");
 		}
-		Hold hold = this.holds.saveAndFlush(new Hold(customer.subject(), show.id(), items, now,
-				this.properties.holdTime()));
+		this.holds.findActive(customer.subject(), show.id()).ifPresent(this::release);
+		Hold hold;
+		try {
+			hold = this.holds.saveAndFlush(new Hold(customer.subject(), show.id(), items, now,
+					this.properties.holdTime()));
+		}
+		catch (DataIntegrityViolationException ex) {
+			// Another of this Customer's Holds for the Show committed after we looked for one to release.
+			if (ex.getCause() instanceof ConstraintViolationException violation
+					&& ONE_ACTIVE_HOLD.equals(violation.getConstraintName())) {
+				throw new ConflictException(
+						"You were making another Hold for this Show at the same moment, so nothing was held. Try again.");
+			}
+			throw ex;
+		}
 		claim(hold, seats, places);
 		return HoldResponse.of(hold);
 	}
@@ -85,10 +105,55 @@ class HoldService {
 	/** @throws NotFoundException unless the caller owns the Hold */
 	@Transactional(readOnly = true)
 	HoldResponse find(UUID id, Caller customer) {
+		return HoldResponse.of(owned(id, customer));
+	}
+
+	/** @throws NotFoundException if the caller has no active Hold for the Show */
+	@Transactional(readOnly = true)
+	HoldResponse mine(UUID showId, Caller customer) {
+		return this.holds.findActive(customer.subject(), showId)
+			.map(HoldResponse::of)
+			.orElseThrow(() -> new NotFoundException("You have no active Hold for that Show."));
+	}
+
+	/**
+	 * Releases the caller's Hold and gives back its inventory.
+	 * @throws NotFoundException unless the caller owns the Hold
+	 * @throws ConflictException if the Hold isn't active
+	 */
+	@Transactional
+	HoldResponse release(UUID id, Caller customer) {
+		if (!release(owned(id, customer))) {
+			throw new ConflictException("The Hold isn't active.");
+		}
+		return HoldResponse.of(this.holds.findById(id).orElseThrow());
+	}
+
+	private Hold owned(UUID id, Caller customer) {
 		return this.holds.findById(id)
 			.filter(hold -> hold.ownedBy(customer.subject()))
-			.map(HoldResponse::of)
 			.orElseThrow(() -> new NotFoundException("No Hold with that id."));
+	}
+
+	/**
+	 * {@code ACTIVE → RELEASED} with a conditional update, then gives back the inventory only if this call made the
+	 * transition, so nothing is given back twice. General Admission Sections go in id order, as when claiming. A
+	 * replacement takes these locks before the new Hold's, so it can deadlock with another Hold; the database then
+	 * aborts one of them, which the caller sees as a retryable {@code 409}.
+	 * @return whether the Hold was active
+	 */
+	private boolean release(Hold hold) {
+		// Read before the release clears the persistence context.
+		List<HoldItem> items = hold.items();
+		if (this.holds.release(hold.id()) == 0) {
+			return false;
+		}
+		this.inventory.releaseSeats(hold.id());
+		items.stream()
+			.filter(item -> item.kind() == HoldItem.Kind.GENERAL_ADMISSION)
+			.sorted(Comparator.comparing(HoldItem::sectionId))
+			.forEach(item -> this.inventory.releasePlaces(hold.showId(), item.sectionId(), item.quantity()));
+		return true;
 	}
 
 	/** Seats first, then General Admission Sections in id order, so every Hold takes its locks in the same order. */

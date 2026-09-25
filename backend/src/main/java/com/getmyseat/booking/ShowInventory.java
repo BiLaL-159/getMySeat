@@ -94,6 +94,28 @@ class ShowInventory {
 				show, section));
 	}
 
+	/** Makes every Seat the Hold holds available again, taking the row locks in Seat id order. */
+	void releaseSeats(UUID hold) {
+		this.jdbc.update("""
+				WITH released AS (
+				    SELECT show_id, seat_id FROM seat_inventory
+				    WHERE hold_id = ? AND status = 'HELD'
+				    ORDER BY seat_id
+				    FOR UPDATE
+				)
+				UPDATE seat_inventory SET status = 'AVAILABLE', hold_id = NULL
+				FROM released
+				WHERE seat_inventory.show_id = released.show_id AND seat_inventory.seat_id = released.seat_id
+				""", hold);
+	}
+
+	/** Gives {@code quantity} places back to the Show's General Admission Section. */
+	void releasePlaces(UUID show, UUID section, int quantity) {
+		this.jdbc.update(
+				"UPDATE general_admission_inventory SET available = available + ? WHERE show_id = ? AND section_id = ?",
+				quantity, show, section);
+	}
+
 	/** Whether each of the Show's Seats is available, by Seat id. */
 	Map<UUID, Boolean> seats(UUID show) {
 		Map<UUID, Boolean> seats = new HashMap<>();
