@@ -108,6 +108,20 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "getmyseat-backend",
+      "name": "GetMySeat backend",
+      "description": "Backend service account for the Keycloak Admin API (grants ORGANIZER on approval). DEV ONLY secret; set KEYCLOAK_BACKEND_CLIENT_SECRET elsewhere.",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "getmyseat-backend-dev-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -147,6 +161,17 @@
         "default-roles-getmyseat",
         "ORGANIZER"
       ]
+    },
+    {
+      "username": "service-account-getmyseat-backend",
+      "enabled": true,
+      "serviceAccountClientId": "getmyseat-backend",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-realm"
+        ]
+      }
     },
     {
       "username": "platform-admin",

@@ -54,6 +54,10 @@ services:
       # signing keys over the compose network instead.
       JWT_ISSUER_URI: http://localhost:8180/realms/getmyseat
       JWT_JWK_SET_URI: http://keycloak:8080/realms/getmyseat/protocol/openid-connect/certs
+      # The backend's service-account client for the Keycloak Admin API (grants ORGANIZER on approval). DEV-ONLY secret.
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_BACKEND_CLIENT_ID: getmyseat-backend
+      KEYCLOAK_BACKEND_CLIENT_SECRET: getmyseat-backend-dev-secret
     ports:
       - "8080:8080"
     depends_on:

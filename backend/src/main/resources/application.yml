@@ -30,6 +30,17 @@ spring:
           jwk-set-uri: ${JWT_JWK_SET_URI:${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/certs}
           audiences: ${JWT_AUDIENCE:getmyseat-api}
 
+getmyseat:
+  keycloak:
+    # The backend's own sign-in to the Keycloak Admin API, used to grant ORGANIZER on approval. Defaults match
+    # docker-compose.yml and the realm export; the secret is DEV-ONLY, so always override it elsewhere.
+    url: ${KEYCLOAK_URL:http://localhost:8180}
+    realm: ${KEYCLOAK_REALM:getmyseat}
+    client-id: ${KEYCLOAK_BACKEND_CLIENT_ID:getmyseat-backend}
+    client-secret: ${KEYCLOAK_BACKEND_CLIENT_SECRET:getmyseat-backend-dev-secret}
+    # Per request; an approval fails with 503 rather than hang when Keycloak is slow or down.
+    timeout: ${KEYCLOAK_TIMEOUT:5s}
+
 management:
   endpoints:
     web:
