@@ -2,10 +2,12 @@ package com.getmyseat.access;
 
 import java.util.List;
 
+import org.springdoc.core.customizers.ParameterCustomizer;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -22,7 +24,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 /**
  * Stateless OAuth2 resource server for Keycloak-issued JWTs. The issuer, JWK set and audience come from
  * {@code spring.security.oauth2.resourceserver.jwt.*}. Everything under the API needs a signed-in caller
- * unless it's listed as public here; role checks go on the controller method with {@code @PreAuthorize}.
+ * unless it's listed as public here; role checks go on the controller method with {@code @PreAuthorize}. A public
+ * endpoint still reads a bearer token when one is sent, so it can take an {@code Optional<Caller>}.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
@@ -50,6 +53,9 @@ class SecurityConfiguration implements WebMvcConfigurer {
 				.permitAll()
 				.requestMatchers("/error")
 				.permitAll()
+				// Public catalogue reads. Owner-only reads under these paths still check the role on the method.
+				.requestMatchers(HttpMethod.GET, "/api/v1/events", "/api/v1/events/*")
+				.permitAll()
 				.anyRequest()
 				.authenticated())
 			.oauth2ResourceServer(resourceServer -> resourceServer
@@ -65,6 +71,13 @@ class SecurityConfiguration implements WebMvcConfigurer {
 	@Bean
 	OAuth2TokenValidator<Jwt> keycloakSubjectValidator() {
 		return new KeycloakSubjectValidator();
+	}
+
+	/** {@link Caller} parameters come from the token, not the request, so they aren't in the OpenAPI spec. */
+	@Bean
+	ParameterCustomizer hideCallerParameters() {
+		return (parameter, methodParameter) -> Caller.class
+			.equals(methodParameter.nestedIfOptional().getNestedParameterType()) ? null : parameter;
 	}
 
 	@Override
