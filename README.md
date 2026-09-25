@@ -53,6 +53,16 @@ Token validation defaults to the compose Keycloak realm:
 | `JWT_JWK_SET_URI` | `${JWT_ISSUER_URI}/protocol/openid-connect/certs` | Where signing keys are fetched (lazily, so the app boots without Keycloak) |
 | `JWT_AUDIENCE` | `getmyseat-api` | The `aud` every access token must carry |
 
+Approving an Organizer Application grants the `ORGANIZER` realm role through the Keycloak Admin API, signed in as the `getmyseat-backend` client:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `KEYCLOAK_URL` | `http://localhost:8180` | Keycloak's base URL, as the backend reaches it |
+| `KEYCLOAK_REALM` | `getmyseat` | The realm roles are granted in |
+| `KEYCLOAK_BACKEND_CLIENT_ID` | `getmyseat-backend` | The backend's confidential client |
+| `KEYCLOAK_BACKEND_CLIENT_SECRET` | `getmyseat-backend-dev-secret` | That client's secret. **Dev only**; always set a real one elsewhere |
+| `KEYCLOAK_TIMEOUT` | `5s` | Per request; a slower Keycloak fails the approval with `503` |
+
 ## API
 
 Everything lives under `/api/v1` and needs a Keycloak access token (`Authorization: Bearer ...`) unless it's marked Public. Public endpoints still read a token if you send one, so an owner can see their own drafts.
@@ -66,6 +76,20 @@ TOKEN=$(curl -s -d grant_type=password -d client_id=getmyseat-dev-cli \
   localhost:8180/realms/getmyseat/protocol/openid-connect/token | jq -r .access_token)
 curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/api/v1/me
 ```
+
+### Organizer Applications
+
+A Customer applies to become an Organizer, and an Admin decides.
+
+| Endpoint | Who | What |
+|---|---|---|
+| `POST /api/v1/organizer-applications` | Customer | Apply with `organisationName`, `contactPhone` and `description`. Your name and email come from your token. `409` if you already have a pending application or are already an Organizer (even before your token shows it). |
+| `GET /api/v1/organizer-applications/mine` | Customer | Your latest application, including the rejection reason if it was rejected. You can apply again after a rejection. |
+| `GET /api/v1/admin/organizer-applications?status=` | Admin | The queue, oldest first and paginated. `status` is `PENDING`, `APPROVED` or `REJECTED`; leave it out for all. |
+| `POST /api/v1/admin/organizer-applications/{id}/approve` | Admin | Grants `ORGANIZER` in Keycloak, then marks the application approved. If Keycloak can't be reached the application stays pending and you get `503`; retrying is safe. If the applicant's Keycloak account no longer exists you get `409`; reject it instead. |
+| `POST /api/v1/admin/organizer-applications/{id}/reject` | Admin | Rejects with a required `reason`. |
+
+Deciding an application that's already decided returns `409`, including when two Admins act at once. Every decision records the Admin's subject and when it was made. The applicant sees `ORGANIZER` in `GET /api/v1/me` after their token is refreshed.
 
 ### Venues
 
@@ -85,6 +109,21 @@ An Organizer proposes a Venue with its Section layout, and an Admin approves it.
 | `GET /api/v1/venues/{id}` | Public | A Venue's Sections and Seats. Approved Venues only, unless you're the owner or an Admin. |
 
 Status goes `DRAFT → PENDING_REVIEW → APPROVED | REJECTED`, and back to `PENDING_REVIEW` when a rejected Venue is resubmitted. The layout can change only in `DRAFT` or `REJECTED`, so any other change is `409`. Section names are unique within a Venue, and Seat labels (row plus number, such as `A12`) are unique within a Section. Someone else's unapproved Venue is `404` to you, and changing someone else's approved Venue is `403`. Seats keep their ids once the Venue is approved.
+
+### Events
+
+An Organizer creates Events as drafts, edits them and publishes them. Drafts are private to their owner; published Events are public.
+
+| Endpoint | Who | What |
+| --- | --- | --- |
+| `POST /api/v1/events` | Organizer | Create a draft with `title`, `description`, `category` (`MUSIC`, `COMEDY`, `THEATRE`, `DANCE`, `SPORTS`, `CONFERENCE`, `WORKSHOP`, `FAMILY` or `OTHER`) and `language` (an ISO 639-1 code such as `en`). |
+| `PUT /api/v1/events/{id}` | Organizer | Edit your Event, draft or published. Send the same fields plus the `version` you last read; if the Event changed since, you get `409` and should reload it. |
+| `POST /api/v1/events/{id}/publish` | Organizer | `DRAFT → PUBLISHED`. `409` if it's already published. |
+| `GET /api/v1/events/mine` | Organizer | Your Events, drafts included, newest first and paginated. Sort by `createdAt` or `title`. |
+| `GET /api/v1/events?q=` | Anyone | Published Events, most recently published first and paginated. `q` matches part of the title or description, ignoring case. Sort by `publishedAt` or `title`. |
+| `GET /api/v1/events/{id}` | Anyone | A published Event. Signed in, you also see your own drafts. |
+
+Someone else's draft is `404` to every caller, and changing someone else's published Event is `403`. Only the owner sees `ownerSubject`.
 
 Conventions every endpoint follows:
 
@@ -110,8 +149,9 @@ These exist only in the local stack. Never reuse them anywhere else.
 | Seed Organizer | `organizer` | `password` |
 | Seed Admin | `platform-admin` | `password` |
 | PostgreSQL | `getmyseat` | `getmyseat` |
+| Backend's Keycloak client | `getmyseat-backend` | `getmyseat-backend-dev-secret` (client secret) |
 
-The realm defines the `CUSTOMER`, `ORGANIZER` and `ADMIN` realm roles. Everyone who registers gets `CUSTOMER`. The realm has two clients, and both issue access tokens with the `getmyseat-api` audience the backend requires:
+The realm defines the `CUSTOMER`, `ORGANIZER` and `ADMIN` realm roles. Everyone who registers gets `CUSTOMER`. Two clients issue access tokens with the `getmyseat-api` audience the backend requires:
 
 - `getmyseat-frontend`: public SPA client using Authorization Code + PKCE.
 - `getmyseat-dev-cli`: **dev only**. It allows the password grant so you can fetch a token with curl:
@@ -121,6 +161,8 @@ curl -s -d grant_type=password -d client_id=getmyseat-dev-cli \
   -d username=organizer -d password=password \
   localhost:8180/realms/getmyseat/protocol/openid-connect/token
 ```
+
+A third client, `getmyseat-backend`, is confidential and has a service account with `realm-management` `manage-users` and `view-realm`. The backend uses it to grant `ORGANIZER` when an Admin approves an Organizer Application.
 
 The realm is defined in [`infra/keycloak/getmyseat-realm.json`](infra/keycloak/getmyseat-realm.json) and imported on startup.
 
@@ -132,7 +174,8 @@ cd backend && ./mvnw verify   # needs Docker running
 
 - `ApplicationHealthIT` boots the full app against PostgreSQL in Testcontainers, runs the Flyway migrations and checks that `/actuator/health` (including the database) is `UP`.
 - `KeycloakRealmIT` boots Keycloak with the committed realm export and checks that each seed user gets a token carrying the right realm role and the `getmyseat-api` audience.
-- API tests are annotated `@ApiIntegrationTest`: the full app against Testcontainers Postgres, called over HTTP with a `RestTestClient`. `TestJwts` stands in for Keycloak, minting signed tokens per request (any subject, name, email and roles) and serving their signing key, so the real token validation runs without a live Keycloak.
+- `KeycloakRoleGrantsIT` boots Keycloak from the realm export next to the full app. It checks that the backend's client can grant `ORGANIZER` (and that granting again is a no-op), and that a real Keycloak token is accepted and its roles mapped.
+- API tests are annotated `@ApiIntegrationTest`: the full app against Testcontainers Postgres, called over HTTP with a `RestTestClient`. `TestJwts` stands in for Keycloak, minting signed tokens per request (any subject, name, email and roles) and serving their signing key, so the real token validation runs without a live Keycloak. `FakeRoleGrants` replaces the Keycloak role-granting adapter; it records grants and can be told to fail.
 
 ## Repository layout
 

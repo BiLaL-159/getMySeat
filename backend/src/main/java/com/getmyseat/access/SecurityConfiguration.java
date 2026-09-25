@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springdoc.core.customizers.ParameterCustomizer;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -28,6 +29,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
+@EnableConfigurationProperties(KeycloakRoleGrants.Properties.class)
 class SecurityConfiguration implements WebMvcConfigurer {
 
 	@Bean
@@ -52,7 +54,10 @@ class SecurityConfiguration implements WebMvcConfigurer {
 				.requestMatchers("/error")
 				.permitAll()
 				// Public catalogue reads. Owner-only reads under these paths still check the role on the method.
-				.requestMatchers(HttpMethod.GET, "/api/v1/venues", "/api/v1/venues/*")
+				.requestMatchers(HttpMethod.GET, "/api/v1/events/mine")
+				.authenticated()
+				.requestMatchers(HttpMethod.GET, "/api/v1/venues", "/api/v1/venues/*", "/api/v1/events",
+						"/api/v1/events/*")
 				.permitAll()
 				.anyRequest()
 				.authenticated())
