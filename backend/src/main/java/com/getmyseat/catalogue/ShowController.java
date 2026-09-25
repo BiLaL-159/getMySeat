@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -20,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.getmyseat.access.Caller;
+import com.getmyseat.catalogue.ShowBrowseResponses.ShowDetail;
+import com.getmyseat.catalogue.ShowBrowseResponses.ShowSummary;
 import com.getmyseat.shared.api.InvalidRequestException;
 import com.getmyseat.shared.api.SortAllowList;
 
@@ -109,18 +112,18 @@ class ShowController {
 
 	@GetMapping("/api/v1/events/{eventId}/shows")
 	@SecurityRequirements
-	@Operation(summary = "An Event's Shows, soonest first",
-			description = "Public for published Shows. Signed in as the Event's owner, you also see its drafts.")
-	Page<ShowResponse> ofEvent(@PathVariable UUID eventId, Optional<Caller> caller,
-			@PageableDefault(sort = "startsAt") Pageable pageable) {
+	@Operation(summary = "An Event's upcoming Shows, soonest first, with their Venue",
+			description = "Public: published Shows that haven't started. Signed in as the Event's owner, you see all its Shows, drafts and past ones included.")
+	Page<ShowSummary> ofEvent(@PathVariable UUID eventId, Optional<Caller> caller,
+			@ParameterObject @PageableDefault(sort = "startsAt") Pageable pageable) {
 		return this.service.ofEvent(eventId, caller, SORTABLE.check(pageable));
 	}
 
 	@GetMapping("/api/v1/shows/{id}")
 	@SecurityRequirements
-	@Operation(summary = "A Show with its Section Prices",
-			description = "Public for published Shows. Signed in, you also see your own drafts.")
-	ShowResponse show(@PathVariable UUID id, Optional<Caller> caller) {
+	@Operation(summary = "A Show with its Venue and each Section's price, capacity or Seats",
+			description = "Public for published Shows. Signed in, you also see your own drafts, whose Sections may not have a price yet.")
+	ShowDetail show(@PathVariable UUID id, Optional<Caller> caller) {
 		return this.service.visible(id, caller);
 	}
 

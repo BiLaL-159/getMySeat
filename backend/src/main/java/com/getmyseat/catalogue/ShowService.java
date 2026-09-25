@@ -1,8 +1,10 @@
 package com.getmyseat.catalogue;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -17,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.getmyseat.access.Caller;
+import com.getmyseat.catalogue.ShowBrowseResponses.ShowDetail;
+import com.getmyseat.catalogue.ShowBrowseResponses.ShowSummary;
 import com.getmyseat.shared.api.ConflictException;
 import com.getmyseat.shared.api.InvalidRequestException;
 import com.getmyseat.shared.api.NotFoundException;
@@ -95,25 +99,28 @@ class ShowService {
 		return ShowResponse.of(save(show));
 	}
 
-	/** The Event's Shows: all of them for its owner, the published ones for anyone else. */
+	/** The Event's Shows: all of them for its owner, the upcoming published ones for anyone else. */
 	@Transactional(readOnly = true)
-	Page<ShowResponse> ofEvent(UUID eventId, Optional<Caller> caller, Pageable pageable) {
+	Page<ShowSummary> ofEvent(UUID eventId, Optional<Caller> caller, Pageable pageable) {
 		Event event = this.events.visibleEvent(eventId, caller);
 		Pageable stable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
 				pageable.getSort().and(Sort.by("id")));
 		Page<Show> page = EventService.isOwner(event, caller) ? this.shows.findByEventId(event.id(), stable)
-				: this.shows.findByEventIdAndStatus(event.id(), Show.Status.PUBLISHED, stable);
-		return page.map(ShowResponse::of);
+				: this.shows.findByEventIdAndStatusAndStartsAtAfter(event.id(), Show.Status.PUBLISHED, Instant.now(),
+						stable);
+		Map<UUID, Venue> venues = new HashMap<>();
+		this.venues.findAllById(page.map(Show::venueId).toSet()).forEach(venue -> venues.put(venue.id(), venue));
+		return page.map(show -> ShowSummary.of(show, venues.get(show.venueId())));
 	}
 
-	/** A published Show for anyone; its owner also sees it as a draft. */
+	/** A published Show for anyone, even once it has started; its owner also sees it as a draft. */
 	@Transactional(readOnly = true)
-	ShowResponse visible(UUID id, Optional<Caller> caller) {
+	ShowDetail visible(UUID id, Optional<Caller> caller) {
 		Show show = this.shows.findById(id).orElseThrow(ShowService::notFound);
 		if (show.status() != Show.Status.PUBLISHED && !isOwner(show, caller)) {
 			throw notFound();
 		}
-		return ShowResponse.of(show);
+		return ShowDetail.of(show, venue(show));
 	}
 
 	private Show owned(UUID id, Caller organizer) {

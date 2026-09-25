@@ -3,6 +3,7 @@ package com.getmyseat.catalogue;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -45,7 +46,7 @@ class VenueAdminController {
 	@Operation(summary = "Venues to review, with their full layout",
 			description = "Oldest submission first. Filter by status, such as PENDING_REVIEW.")
 	Page<VenueResponse> queue(@RequestParam(required = false) Venue.@Nullable Status status,
-			@PageableDefault(sort = "submittedAt", direction = Sort.Direction.ASC) Pageable pageable) {
+			@ParameterObject @PageableDefault(sort = "submittedAt", direction = Sort.Direction.ASC) Pageable pageable) {
 		return this.service.reviewQueue(status, SORTABLE.check(pageable));
 	}
 

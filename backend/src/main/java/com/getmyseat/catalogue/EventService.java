@@ -1,12 +1,12 @@
 package com.getmyseat.catalogue;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import org.jspecify.annotations.Nullable;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -68,9 +68,15 @@ class EventService {
 		return this.events.findByOwnerSubject(organizer.subject(), withTieBreaker(pageable)).map(EventResponse::of);
 	}
 
+	/** @throws InvalidRequestException if the date range ends before it starts */
 	@Transactional(readOnly = true)
-	Page<EventResponse> search(@Nullable String q, Pageable pageable) {
-		return this.events.findAll(EventRepository.published(q), withTieBreaker(pageable))
+	Page<EventResponse> search(EventRepository.Filters filters, Pageable pageable) {
+		LocalDate from = filters.from();
+		LocalDate to = filters.to();
+		if (from != null && to != null && to.isBefore(from)) {
+			throw new InvalidRequestException("to", "must not be before from");
+		}
+		return this.events.findAll(EventRepository.published(filters, Instant.now()), withTieBreaker(pageable))
 			.map(event -> EventResponse.of(event).withoutOwner());
 	}
 

@@ -54,6 +54,15 @@ final class ShowApi {
 		return this.venues.approve(owner, this.venues.draftWithLayout(owner));
 	}
 
+	/** Like {@link #approvedVenue()}, in the given city and IANA time zone. */
+	String approvedVenueIn(String city, String timeZone) {
+		String owner = this.venues.jwts.organizer().encode();
+		String venue = this.venues.createVenue(owner, """
+				{ "name": "Town Hall", "address": "1 Main Road", "city": "%s", "timeZone": "%s" }
+				""".formatted(city, timeZone));
+		return this.venues.approve(owner, this.venues.withLayout(owner, venue));
+	}
+
 	/** The ids of the Venue's Sections, in layout order. */
 	List<String> sections(String venue) {
 		List<String> ids = new ArrayList<>();
@@ -94,6 +103,23 @@ final class ShowApi {
 		String event = this.events.publishedEvent(token, EventApi.EVENT);
 		String show = priced(draftShow(event, token, venue), token, venue);
 		publish(show, token).expectStatus().isOk();
+		return show;
+	}
+
+	/** A priced, published Show of the given published Event, starting at the given time. */
+	String publishedShow(String event, String token, String venue, Instant startsAt) {
+		String show = priced(id(schedule(event, token, show(venue, startsAt)).expectStatus().isCreated()), token, venue);
+		publish(show, token).expectStatus().isOk();
+		return show;
+	}
+
+	/** A published Show of the given published Event that has already started, which takes a few seconds. */
+	String pastShow(String event, String token, String venue) throws InterruptedException {
+		Instant soon = Instant.now().plus(3, ChronoUnit.SECONDS);
+		String show = publishedShow(event, token, venue, soon);
+		while (!Instant.now().isAfter(soon)) {
+			Thread.sleep(100);
+		}
 		return show;
 	}
 

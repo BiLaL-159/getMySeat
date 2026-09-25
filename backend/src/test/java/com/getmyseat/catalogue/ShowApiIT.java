@@ -209,10 +209,10 @@ class ShowApiIT {
 
 		api.get("/api/v1/shows/" + show, token)
 			.expectBody()
-			.jsonPath("$.prices.length()")
-			.isEqualTo(1)
-			.jsonPath("$.prices[0].sectionId")
-			.isEqualTo(sections.get(1));
+			.jsonPath("$.sections[0].price")
+			.isEmpty()
+			.jsonPath("$.sections[1].price.amountPaise")
+			.isEqualTo(120_000);
 	}
 
 	@Test
@@ -255,7 +255,8 @@ class ShowApiIT {
 		EventApi.assertValidationProblem(
 				api.setPrices(show, token, ShowApi.prices(List.of(api.sections(venue).get(0), elsewhere), 100, 100)),
 				"prices[1].sectionId");
-		api.get("/api/v1/shows/" + show, token).expectBody().jsonPath("$.prices.length()").isEqualTo(0);
+		JsonNode unpriced = ShowApi.read(api.get("/api/v1/shows/" + show, token).expectStatus().isOk());
+		assertThat(unpriced.path("sections").valueStream().map(s -> s.path("price").isNull())).containsOnly(true);
 	}
 
 	@Test

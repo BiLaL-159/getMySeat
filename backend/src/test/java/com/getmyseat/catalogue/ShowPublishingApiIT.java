@@ -108,7 +108,7 @@ class ShowPublishingApiIT {
 				locked);
 
 		JsonNode unchanged = ShowApi.read(api.get("/api/v1/shows/" + show, null).expectStatus().isOk());
-		assertThat(unchanged.path("prices").valueStream().map(p -> p.path("amountPaise").asLong()))
+		assertThat(unchanged.path("sections").valueStream().map(s -> s.path("price").path("amountPaise").asLong()))
 			.containsOnly(50_000L);
 	}
 
