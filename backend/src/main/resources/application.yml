@@ -6,6 +6,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/getmyseat}
     username: ${DB_USERNAME:getmyseat}
     password: ${DB_PASSWORD:getmyseat}
+  jackson:
+    deserialization:
+      # 499.5 for a whole number (paise, capacity, seat count) is a 400, not silently truncated.
+      accept-float-as-int: false
   jpa:
     open-in-view: false
     hibernate:

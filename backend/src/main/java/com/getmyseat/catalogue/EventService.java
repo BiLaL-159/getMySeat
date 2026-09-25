@@ -77,18 +77,31 @@ class EventService {
 	/** A published Event for anyone; its owner also sees it as a draft. */
 	@Transactional(readOnly = true)
 	EventResponse visible(UUID id, Optional<Caller> caller) {
-		Event event = this.events.findById(id).orElseThrow(EventService::notFound);
-		if (caller.filter(c -> event.isOwnedBy(c.subject())).isPresent()) {
-			return EventResponse.of(event);
-		}
-		if (event.status() == Event.Status.PUBLISHED) {
-			return EventResponse.of(event).withoutOwner();
-		}
-		throw notFound();
+		Event event = visibleEvent(id, caller);
+		return isOwner(event, caller) ? EventResponse.of(event) : EventResponse.of(event).withoutOwner();
 	}
 
-	private Event owned(UUID id, Caller organizer) {
-		Event event = this.events.findById(id).orElseThrow(EventService::notFound);
+	/** @throws NotFoundException unless the Event is published or the caller owns it */
+	Event visibleEvent(UUID id, Optional<Caller> caller) {
+		Event event = event(id);
+		if (event.status() != Event.Status.PUBLISHED && !isOwner(event, caller)) {
+			throw notFound();
+		}
+		return event;
+	}
+
+	/** Any Event, whoever owns it; check visibility before showing it to anyone. */
+	Event event(UUID id) {
+		return this.events.findById(id).orElseThrow(EventService::notFound);
+	}
+
+	static boolean isOwner(Event event, Optional<Caller> caller) {
+		return caller.filter(c -> event.isOwnedBy(c.subject())).isPresent();
+	}
+
+	/** @throws NotFoundException for someone else's draft; {@link AccessDeniedException} for their published Event */
+	Event owned(UUID id, Caller organizer) {
+		Event event = event(id);
 		if (!event.isOwnedBy(organizer.subject())) {
 			if (event.status() == Event.Status.PUBLISHED) {
 				throw new AccessDeniedException("Only the Organizer who created an Event can change it.");
