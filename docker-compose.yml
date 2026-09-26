@@ -61,6 +61,8 @@ services:
       # Shorten to watch Holds expire, e.g. `HOLD_TIME=30s docker compose up -d backend`.
       HOLD_TIME: ${HOLD_TIME:-10m}
       HOLD_CLEANUP_INTERVAL: ${HOLD_CLEANUP_INTERVAL:-30s}
+      # Origins a browser may call the API from, comma-separated. Defaults to the Vite dev server.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
     ports:
       - "8080:8080"
     depends_on:

@@ -4,10 +4,13 @@ import java.util.List;
 
 import org.springdoc.core.customizers.ParameterCustomizer;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -17,6 +20,9 @@ import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthen
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -25,12 +31,18 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * Stateless OAuth2 resource server for Keycloak-issued JWTs. The issuer, JWK set and audience come from
  * {@code spring.security.oauth2.resourceserver.jwt.*}. Everything under the API needs a signed-in caller
  * unless it's listed as public here; role checks go on the controller method with {@code @PreAuthorize}. A public
- * endpoint still reads a bearer token when one is sent, so it can take an {@code Optional<Caller>}.
+ * endpoint still reads a bearer token when one is sent, so it can take an {@code Optional<Caller>}. CORS runs first in
+ * the chain, so a separately hosted SPA's preflights are answered before authentication.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
-@EnableConfigurationProperties(KeycloakRoleGrants.Properties.class)
+@EnableConfigurationProperties({ KeycloakRoleGrants.Properties.class, SecurityConfiguration.CorsProperties.class })
 class SecurityConfiguration implements WebMvcConfigurer {
+
+	/** @param allowedOrigins the origins a browser may call the API from, such as the SPA's */
+	@ConfigurationProperties("getmyseat.cors")
+	record CorsProperties(List<String> allowedOrigins) {
+	}
 
 	@Bean
 	SecurityFilterChain apiSecurityFilterChain(HttpSecurity http,
@@ -44,7 +56,8 @@ class SecurityConfiguration implements WebMvcConfigurer {
 		AccessDeniedHandler accessDeniedHandler = (request, response, ex) -> exceptionResolver
 			.resolveException(request, response, null, ex);
 
-		http.csrf(csrf -> csrf.disable())
+		http.cors(Customizer.withDefaults())
+			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(requests -> requests
 				.requestMatchers("/actuator/health", "/actuator/health/**")
@@ -70,6 +83,22 @@ class SecurityConfiguration implements WebMvcConfigurer {
 			.exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint)
 				.accessDeniedHandler(accessDeniedHandler));
 		return http.build();
+	}
+
+	/**
+	 * Picked up by {@code http.cors()}. Tokens travel in {@code Authorization}, not cookies, so no credentials.
+	 * {@code Idempotency-Key} is the Hold request header; a new custom request header needs adding here too.
+	 */
+	@Bean
+	CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
+		CorsConfiguration cors = new CorsConfiguration();
+		cors.setAllowedOrigins(properties.allowedOrigins());
+		cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
+		cors.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE, "Idempotency-Key"));
+		cors.setExposedHeaders(List.of(HttpHeaders.LOCATION));
+		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+		source.registerCorsConfiguration("/**", cors);
+		return source;
 	}
 
 	/** Added by Spring Boot to the auto-configured JWT decoder, next to the issuer and audience checks. */
