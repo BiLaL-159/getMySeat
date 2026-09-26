@@ -282,12 +282,20 @@ Every setting has a default that points at the compose stack. See [configuration
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-With the compose stack up, "Sign in" on the landing page signs you in through Keycloak as one of the seed users, and `/app` shows your name and roles from `GET /api/v1/me`. The app talks to the compose stack by default; copy `frontend/.env.example` to `frontend/.env.local` to point it elsewhere. The other screens arrive alongside the backend phases.
+With the compose stack up, "Sign in" on the landing page signs you in through Keycloak as one of the seed users, and `/app` shows your name and roles from `GET /api/v1/me`. The nav follows those roles: an Organizer also gets `/organizer` and an Admin `/admin`, and anyone else who opens those areas is told they're not allowed. The app talks to the compose stack by default; copy `frontend/.env.example` to `frontend/.env.local` to point it elsewhere. The other screens arrive alongside the backend phases.
 
 The API types in `frontend/src/api/schema.d.ts` are generated from the running backend's OpenAPI spec. Regenerate them after the API changes:
 
 ```bash
 cd frontend && npm run gen:api   # reads http://localhost:8080/v3/api-docs, or $API_DOCS_URL
+```
+
+Unit tests run with Vitest. The Playwright smoke test signs in as `customer`, `organizer` and `platform-admin` against the compose stack and checks each one's nav; it starts the dev server itself, or reuses one on port 5173:
+
+```bash
+cd frontend && npm test
+npx playwright install chromium   # once
+docker compose up -d --build --wait && npm run test:e2e
 ```
 
 ### Tests

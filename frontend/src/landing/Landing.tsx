@@ -28,7 +28,7 @@ function Landing() {
                     <a href="/" onClick={(e) => { e.preventDefault(); session.signOut() }}>Sign out</a>
                     <Link className="signin" to="/app">{session.firstName ?? 'Your account'}</Link>
                   </>
-                ) : session.status === 'signedOut' ? (
+                ) : session.status === 'signedOut' || session.status === 'expired' ? (
                   <a className="signin" href="/app" onClick={(e) => { e.preventDefault(); session.signIn('/app') }}>Sign in</a>
                 ) : (
                   // Holds the link's place while the session is restored, so nothing jumps or flashes.

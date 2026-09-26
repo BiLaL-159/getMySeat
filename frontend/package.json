@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:api": "openapi-typescript ${API_DOCS_URL:-http://localhost:8080/v3/api-docs} -o src/api/schema.d.ts"
+    "gen:api": "openapi-typescript ${API_DOCS_URL:-http://localhost:8080/v3/api-docs} -o src/api/schema.d.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
@@ -26,6 +27,7 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
