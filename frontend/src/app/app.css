@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@import "../theme/tokens.css";
+
+/* The landing styles itself; keep its class names from generating utilities. */
+@source not "../landing";
+
+/* Match the dark rules in tokens.css: follow the OS unless data-theme overrides it. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+}
+
+/* shadcn/ui semantic colours, drawn from the brand tokens. The tokens flip for
+   dark mode, so these need no dark block of their own. */
+:root {
+  --radius: 0.625rem;
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-2);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--lime);
+  --primary-foreground: #161A0C; /* ink on lime in both themes, as on the landing CTAs */
+  --secondary: var(--violet);
+  --secondary-foreground: var(--paper);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-2);
+  --accent: var(--paper-2);
+  --accent-foreground: var(--ink);
+  --destructive: #C8372D;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--violet);
+}
+
+@theme inline {
+  --font-sans: var(--body);
+  --font-display: var(--display);
+  --font-mono: var(--mono);
+
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-lime: var(--lime);
+  --color-violet: var(--violet);
+  --color-night: var(--night);
+  --color-night-ink: var(--night-ink);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}

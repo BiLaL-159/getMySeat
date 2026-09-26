@@ -3,5 +3,9 @@
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" }
-  ]
+  ],
+  // The shadcn CLI reads the @/ alias from the root tsconfig.
+  "compilerOptions": {
+    "paths": { "@/*": ["./src/*"] }
+  }
 }
