@@ -321,7 +321,7 @@ docker compose run --rm k6
 
 k6 runs as a container on the compose network, so you don't need to install it. The test takes about two minutes, and needs the default Hold time, since its post-run check assumes no Hold expires during the run. Its setup creates Customer accounts `k6-customer-0001` to `k6-customer-0300` in the dev Keycloak, reusing them on later runs, and publishes a new Show as the seed Organizer. The run fails if any response is a `5xx`, if any check fails, or if the post-run check finds a Seat held twice or a General Admission Section oversold. Set `CUSTOMERS` to change the number of Customers and virtual users, for example `docker compose run --rm -e CUSTOMERS=100 k6`. To use a local k6 against the published ports instead, run `k6 run load-test/holds.js`. The load test isn't part of CI.
 
-CI runs `./mvnw verify` for the backend and `npm run lint` and `npm run build` for the frontend on every push and pull request.
+CI runs `./mvnw verify` for the backend, `npm run lint`, `npm test` and `npm run build` for the frontend, and the Playwright smoke test against the compose stack, on every push and pull request.
 
 ### Project layout
 

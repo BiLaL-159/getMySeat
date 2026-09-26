@@ -180,8 +180,7 @@ describe('role guards', () => {
 })
 
 describe('session expired', () => {
-  it('asks you to sign in again when the API rejects the session and it cannot be renewed', async () => {
-    const user = userEvent.setup()
+  it('sends you back through sign-in when the API rejects the session and it cannot be renewed', async () => {
     vi.spyOn(userManager, 'signinSilent').mockRejectedValue(new ErrorResponse({ error: 'login_required' }))
     setAuth(signedIn())
     meResponse.respond = () =>
@@ -189,9 +188,19 @@ describe('session expired', () => {
     renderRoute('/organizer')
 
     expect(await screen.findByRole('heading', { name: /session has expired/i })).toBeInTheDocument()
-    expect(signinRedirect).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: /sign in again/i }))
     expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/organizer' } })
+  })
+
+  it('offers to sign in again if the redirect does not happen', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(userManager, 'signinSilent').mockRejectedValue(new ErrorResponse({ error: 'login_required' }))
+    setAuth(signedIn())
+    meResponse.respond = () =>
+      Response.json({ type: 'urn:getmyseat:problem:unauthorized', status: 401 }, { status: 401 })
+    renderRoute('/organizer')
+
+    await user.click(await screen.findByRole('button', { name: /sign in again/i }))
+    expect(signinRedirect).toHaveBeenCalledTimes(2)
   })
 })
 

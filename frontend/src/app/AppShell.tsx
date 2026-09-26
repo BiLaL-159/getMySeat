@@ -24,10 +24,10 @@ function AppShell() {
   const { signIn } = session
   const location = useLocation()
   const here = location.pathname + location.search
-  const mustSignIn = session.status === 'signedOut' && !session.error
+  const mustSignIn = (session.status === 'signedOut' || session.status === 'expired') && !session.error
 
-  // A signed-out visitor goes straight to sign-in, and comes back here afterwards. After a failed
-  // attempt, or an expired session, they choose to sign in, so a broken sign-in can't loop.
+  // A signed-out visitor, or one whose session has expired, goes straight to sign-in and comes back
+  // here afterwards. After a failed attempt they choose to retry, so a broken sign-in can't loop.
   useEffect(() => {
     if (mustSignIn) signIn(here)
   }, [mustSignIn, signIn, here])
@@ -47,7 +47,7 @@ function AppShell() {
         {session.status === 'signedIn' ? (
           <SignedIn />
         ) : session.status === 'expired' ? (
-          <MessageCard title="Your session has expired" description="Sign in again to carry on where you were.">
+          <MessageCard title="Your session has expired" description="Taking you to sign in, then back here.">
             <Button onClick={() => signIn(here)}>Sign in again</Button>
           </MessageCard>
         ) : session.error ? (
