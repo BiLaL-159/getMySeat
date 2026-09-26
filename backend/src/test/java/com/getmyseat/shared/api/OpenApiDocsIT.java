@@ -99,6 +99,25 @@ class OpenApiDocsIT {
 			.contains("ACTIVE");
 	}
 
+	@Test
+	void holdCreationDocumentsTheIdempotencyKey() {
+		JsonNode operation = spec().at("/paths/~1api~1v1~1shows~1{id}~1holds/post");
+
+		JsonNode header = operation.path("parameters")
+			.valueStream()
+			.filter(p -> p.path("name").asString().equals("Idempotency-Key"))
+			.findFirst()
+			.orElseThrow();
+		assertThat(header.path("in").asString()).isEqualTo("header");
+		assertThat(header.path("required").asBoolean()).isTrue();
+		assertThat(header.path("description").asString()).isNotBlank();
+		assertThat(header.at("/schema/minLength").asInt()).isEqualTo(1);
+		assertThat(header.at("/schema/maxLength").asInt()).isEqualTo(255);
+		assertThat(operation.at("/responses/409/description").asString())
+			.contains("urn:getmyseat:problem:idempotency-key-reused");
+		assertThat(operation.at("/responses/400/description").asString()).contains("Idempotency-Key");
+	}
+
 	private JsonNode spec() {
 		return JsonMapper.builder()
 			.build()

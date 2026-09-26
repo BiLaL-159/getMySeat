@@ -2,6 +2,7 @@ package com.getmyseat.booking;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpMethod;
@@ -72,8 +73,18 @@ final class HoldApi {
 		return "{ \"sectionId\": \"%s\", \"quantity\": %d }".formatted(section, quantity);
 	}
 
+	/** Holds with a fresh {@code Idempotency-Key}, as a client does for each new Hold it makes. */
 	RestTestClient.ResponseSpec hold(String show, @Nullable String token, String body) {
-		return send("POST", "/api/v1/shows/" + show + "/holds", token, body);
+		return hold(show, token, body, UUID.randomUUID().toString());
+	}
+
+	/** @param idempotencyKey {@code null} to leave the header out */
+	RestTestClient.ResponseSpec hold(String show, @Nullable String token, String body, @Nullable String idempotencyKey) {
+		RestTestClient.RequestBodySpec request = request("POST", "/api/v1/shows/" + show + "/holds", token);
+		if (idempotencyKey != null) {
+			request.header("Idempotency-Key", idempotencyKey);
+		}
+		return request.contentType(MediaType.APPLICATION_JSON).body(body).exchange();
 	}
 
 	/** Holds as the Customer with the given token and returns the Hold. */
@@ -102,15 +113,19 @@ final class HoldApi {
 	}
 
 	private RestTestClient.ResponseSpec send(String method, String uri, @Nullable String token, String body) {
-		RestTestClient.RequestBodySpec request = this.client.method(HttpMethod.valueOf(method)).uri(uri).headers(h -> {
-			if (token != null) {
-				h.setBearerAuth(token);
-			}
-		});
+		RestTestClient.RequestBodySpec request = request(method, uri, token);
 		if (!body.isEmpty()) {
 			request.contentType(MediaType.APPLICATION_JSON).body(body);
 		}
 		return request.exchange();
+	}
+
+	private RestTestClient.RequestBodySpec request(String method, String uri, @Nullable String token) {
+		return this.client.method(HttpMethod.valueOf(method)).uri(uri).headers(h -> {
+			if (token != null) {
+				h.setBearerAuth(token);
+			}
+		});
 	}
 
 }

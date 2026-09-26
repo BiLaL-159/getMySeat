@@ -9,7 +9,8 @@ import org.springframework.stereotype.Component;
 /**
  * Expires the Holds that nobody reads, so abandoned checkouts give their inventory back. A Hold that is read after
  * its expiry time expires right then instead; availability reads don't expire Holds, so a Seat whose Hold has
- * expired stays unavailable until the next run at the latest.
+ * expired stays unavailable until the next run at the latest. Also forgets the {@code Idempotency-Key}s of Hold
+ * creations more than a day old.
  */
 @Component
 class HoldCleanup {
@@ -25,9 +26,15 @@ class HoldCleanup {
 		this.service = service;
 	}
 
-	/** Expires due Holds a batch at a time, until a batch comes back short. */
+	/** Expires due Holds, then forgets day-old Idempotency-Keys. */
 	@Scheduled(fixedDelayString = "${getmyseat.holds.cleanup-interval}")
-	void expireDueHolds() {
+	void cleanUp() {
+		expireDueHolds();
+		this.service.forgetOldKeys();
+	}
+
+	/** Expires due Holds a batch at a time, until a batch comes back short. */
+	private void expireDueHolds() {
 		try {
 			while (this.service.expireDue(BATCH_SIZE) == BATCH_SIZE) {
 				// Another full batch may be waiting.

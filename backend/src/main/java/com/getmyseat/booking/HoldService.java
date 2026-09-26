@@ -1,14 +1,20 @@
 package com.getmyseat.booking;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -34,15 +40,34 @@ import com.getmyseat.shared.api.NotFoundException;
 /**
  * Creates, reads and releases Holds. A Hold claims its inventory with conditional updates in one transaction, all or
  * nothing (ADR 0003): if anything asked for is gone, the transaction rolls back and nothing is held. A Customer has at
- * most one active Hold per Show, so a new Hold releases the old one in the same transaction.
+ * most one active Hold per Show, so a new Hold releases the old one in the same transaction. Every creation carries
+ * the Customer's {@code Idempotency-Key}, so a retry gets the original Hold back and claims nothing.
  */
 @Service
 class HoldService {
 
 	static final int MAX_TICKETS = 10;
 
+	/** How long a retry with an {@code Idempotency-Key} gets the original Hold back. */
+	static final Duration KEY_RETENTION = Duration.ofHours(24);
+
 	/** The unique index that allows one active Hold per Customer per Show. */
 	private static final String ONE_ACTIVE_HOLD = "hold_one_active_per_customer_show";
+
+	/** The primary key that allows one use of an {@code Idempotency-Key} per Customer. */
+	private static final String ONE_USE_PER_KEY = "hold_idempotency_key_pkey";
+
+	/**
+	 * A request with the same {@code Idempotency-Key} committed while this one was running, so this one's
+	 * transaction rolled back. Replay the key in a new transaction.
+	 */
+	static class IdempotencyKeyTakenException extends RuntimeException {
+
+		IdempotencyKeyTakenException() {
+			super("Another request with the same Idempotency-Key committed first");
+		}
+
+	}
 
 	/** Some General Admission places in one Section, as asked for. */
 	record Places(UUID sectionId, int quantity) {
@@ -63,28 +88,43 @@ class HoldService {
 
 	private final HoldRepository holds;
 
+	private final HoldIdempotencyKeyRepository keys;
+
 	private final HoldProperties properties;
 
 	private final Clock clock;
 
-	HoldService(ShowCatalogue catalogue, ShowInventory inventory, HoldRepository holds, HoldProperties properties,
-			Clock clock) {
+	HoldService(ShowCatalogue catalogue, ShowInventory inventory, HoldRepository holds,
+			HoldIdempotencyKeyRepository keys, HoldProperties properties, Clock clock) {
 		this.catalogue = catalogue;
 		this.inventory = inventory;
 		this.holds = holds;
+		this.keys = keys;
 		this.properties = properties;
 		this.clock = clock;
 	}
 
 	/**
+	 * Makes a Hold, or with a key the Customer used before for the same request, returns that Hold as it is now. The
+	 * key is written in the Hold's transaction, so a request that fails leaves no key behind.
+	 * @param idempotencyKey the Customer's key for this request
 	 * @throws NotFoundException for a draft or unknown Show
 	 * @throws InvalidRequestException for the first Seat or General Admission item that breaks a rule
 	 * @throws ConflictException if the Show has started, or the Customer is making another Hold for it right now
+	 * @throws IdempotencyKeyReusedException if the Customer used the key for a different request
+	 * @throws IdempotencyKeyTakenException if another request with the key committed while this one was running;
+	 * nothing was held, and {@link #replay} returns that request's Hold
 	 * @throws InventoryUnavailableException naming everything that couldn't be held; the Customer's previous Hold
 	 * for the Show is still active
 	 */
 	@Transactional
-	HoldResponse create(UUID showId, Caller customer, List<UUID> seats, List<Places> places) {
+	HoldResponse create(UUID showId, Caller customer, String idempotencyKey, List<UUID> seats, List<Places> places) {
+		HoldIdempotencyKey.Id key = new HoldIdempotencyKey.Id(customer.subject(), idempotencyKey);
+		String requestHash = requestHash(showId, seats, places);
+		Optional<HoldIdempotencyKey> used = this.keys.findById(key);
+		if (used.isPresent()) {
+			return replayed(used.get(), requestHash, customer);
+		}
 		SellableShow show = this.catalogue.sellableShow(showId)
 			.filter(SellableShow::published)
 			.orElseThrow(() -> new NotFoundException("No Show with that id."));
@@ -93,16 +133,25 @@ class HoldService {
 		if (!now.isBefore(show.startsAt())) {
 			throw new ConflictException("The Show has already started.");
 		}
-		this.holds.findActive(customer.subject(), show.id()).ifPresent(old -> end(old, old.dueAt(now) ? Hold.Status.EXPIRED : Hold.Status.RELEASED));
-		Hold hold;
+		Hold hold = new Hold(customer.subject(), show.id(), items, now, this.properties.holdTime());
+		// Before the old Hold is released: a concurrent request with the same key waits here until this one ends, so
+		// it can never release the Hold this one makes.
 		try {
-			hold = this.holds.saveAndFlush(new Hold(customer.subject(), show.id(), items, now,
-					this.properties.holdTime()));
+			this.keys.saveAndFlush(new HoldIdempotencyKey(key, requestHash, hold.id(), now));
+		}
+		catch (DataIntegrityViolationException ex) {
+			if (violated(ex, ONE_USE_PER_KEY)) {
+				throw new IdempotencyKeyTakenException();
+			}
+			throw ex;
+		}
+		this.holds.findActive(customer.subject(), show.id()).ifPresent(old -> end(old, old.dueAt(now) ? Hold.Status.EXPIRED : Hold.Status.RELEASED));
+		try {
+			hold = this.holds.saveAndFlush(hold);
 		}
 		catch (DataIntegrityViolationException ex) {
 			// Another of this Customer's Holds for the Show committed after we looked for one to release.
-			if (ex.getCause() instanceof ConstraintViolationException violation
-					&& ONE_ACTIVE_HOLD.equals(violation.getConstraintName())) {
+			if (violated(ex, ONE_ACTIVE_HOLD)) {
 				throw new ConflictException(
 						"You were making another Hold for this Show at the same moment, so nothing was held. Try again.");
 			}
@@ -113,16 +162,24 @@ class HoldService {
 	}
 
 	/**
+	 * The Hold that a request with the Customer's key made, as it is now, after {@link #create} lost a race for the
+	 * key.
+	 * @throws IdempotencyKeyReusedException if the key was used for a different request
+	 */
+	@Transactional
+	HoldResponse replay(UUID showId, Caller customer, String idempotencyKey, List<UUID> seats, List<Places> places) {
+		HoldIdempotencyKey used = this.keys.findById(new HoldIdempotencyKey.Id(customer.subject(), idempotencyKey))
+			.orElseThrow(() -> new IllegalStateException("The Idempotency-Key that won the race isn't there"));
+		return replayed(used, requestHash(showId, seats, places), customer);
+	}
+
+	/**
 	 * An active Hold past its expiry time expires now, and gives back its inventory.
 	 * @throws NotFoundException unless the caller owns the Hold
 	 */
 	@Transactional
 	HoldResponse find(UUID id, Caller customer) {
-		Hold hold = owned(id, customer);
-		if (expireIfDue(hold, now())) {
-			hold = this.holds.findById(id).orElseThrow();
-		}
-		return HoldResponse.of(hold);
+		return current(owned(id, customer));
 	}
 
 	/**
@@ -173,6 +230,32 @@ class HoldService {
 		this.holds.expire(ids);
 		giveBack(ids, places);
 		return due.size();
+	}
+
+	/** The key's Hold, expiring it if it is due, as {@link #find} does. Claims nothing. */
+	private HoldResponse replayed(HoldIdempotencyKey used, String requestHash, Caller customer) {
+		if (!used.madeBy(requestHash)) {
+			throw new IdempotencyKeyReusedException();
+		}
+		return current(this.holds.findById(used.holdId()).orElseThrow());
+	}
+
+	/** The Hold as it is now: an active Hold past its expiry time expires first. */
+	private HoldResponse current(Hold hold) {
+		if (expireIfDue(hold, now())) {
+			hold = this.holds.findById(hold.id()).orElseThrow();
+		}
+		return HoldResponse.of(hold);
+	}
+
+	/**
+	 * Deletes the {@code Idempotency-Key}s written more than {@link #KEY_RETENTION} ago, so a later request with one
+	 * of them makes a new Hold.
+	 * @return how many keys were deleted
+	 */
+	@Transactional
+	int forgetOldKeys() {
+		return this.keys.deleteCreatedBefore(now().minus(KEY_RETENTION));
 	}
 
 	private Hold owned(UUID id, Caller customer) {
@@ -255,6 +338,30 @@ class HoldService {
 				.map(item -> new UnavailableSection(item.sectionId(), placesLeft.get(item.sectionId())))
 				.toList();
 			throw new InventoryUnavailableException(unavailableSeats, unavailableSections);
+		}
+	}
+
+	private static boolean violated(DataIntegrityViolationException ex, String constraint) {
+		return ex.getCause() instanceof ConstraintViolationException violation
+				&& constraint.equals(violation.getConstraintName());
+	}
+
+	/**
+	 * Identifies a Hold request by its Show and what it asks for, whatever order the items come in: SHA-256, in hex,
+	 * of the Show id, the sorted Seat ids and the General Admission items sorted by Section.
+	 */
+	private static String requestHash(UUID showId, List<UUID> seats, List<Places> places) {
+		String request = showId + "\nseats:" + seats.stream().sorted().map(UUID::toString).collect(Collectors.joining(","))
+				+ "\ngeneralAdmission:" + places.stream()
+					.sorted(Comparator.comparing(Places::sectionId).thenComparingInt(Places::quantity))
+					.map(item -> item.sectionId() + "=" + item.quantity())
+					.collect(Collectors.joining(","));
+		try {
+			return HexFormat.of()
+				.formatHex(MessageDigest.getInstance("SHA-256").digest(request.getBytes(StandardCharsets.UTF_8)));
+		}
+		catch (NoSuchAlgorithmException ex) {
+			throw new IllegalStateException("Every JVM has SHA-256", ex);
 		}
 	}
 
