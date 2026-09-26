@@ -95,6 +95,11 @@ class Hold {
 		return this.status;
 	}
 
+	/** Whether the Hold is active and its expiry time has come. */
+	boolean dueAt(Instant now) {
+		return this.status == Status.ACTIVE && !now.isBefore(this.expiresAt);
+	}
+
 	Instant expiresAt() {
 		return this.expiresAt;
 	}
