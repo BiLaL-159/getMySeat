@@ -39,7 +39,7 @@ GetMySeat lets **Organizers** list Events and schedule Shows at Venues, and lets
 
 - **Seated and General Admission inventory.** A Venue is made of Sections that are either numbered Seats or a capacity count, and a Show can mix both.
 - **No double-selling.** Seats are claimed with conditional updates (`AVAILABLE → HELD`) and General Admission with a decrement that can't go below zero, all or nothing in one transaction.
-- **Holds.** A Customer holds up to 10 tickets while they pay. A Hold carries an expiry time, can be released early, and a Customer has at most one active Hold per Show.
+- **Holds.** A Customer holds up to 10 tickets while they pay. A Hold expires on its own after 10 minutes by default, can be released early, and a Customer has at most one active Hold per Show.
 - **Organizer onboarding.** A Customer applies to become an Organizer, and approval grants the role in Keycloak.
 - **Moderated Venues.** Organizers propose Venues with their layout, Admins approve them, and an approved layout is fixed.
 - **Events, Shows and pricing.** Organizers draft and publish Events, schedule Shows and set a price per Section.
