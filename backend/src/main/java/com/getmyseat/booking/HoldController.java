@@ -85,6 +85,8 @@ class HoldController {
 	@ApiResponse(responseCode = "400",
 			description = "The request is invalid, or the Idempotency-Key header is missing or not 1 to 255 characters (type urn:getmyseat:problem:validation)",
 			content = @Content(mediaType = "application/problem+json"))
+	@ApiResponse(responseCode = "404", description = "No published Show with that id",
+			content = @Content(mediaType = "application/problem+json"))
 	@ApiResponse(responseCode = "409",
 			description = "Some of the inventory is unavailable (type urn:getmyseat:problem:inventory-unavailable), you used the Idempotency-Key before for a different request (type urn:getmyseat:problem:idempotency-key-reused), or the Show has started or you were making another Hold for it at the same moment (type urn:getmyseat:problem:conflict)",
 			content = @Content(mediaType = "application/problem+json",

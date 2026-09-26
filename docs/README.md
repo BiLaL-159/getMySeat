@@ -3,3 +3,4 @@
 - [API reference](api.md): every endpoint, who can call it, and the conventions they share
 - [Walkthrough](walkthrough.md): from a new Customer to a published, priced Show with `curl`
 - [Configuration](configuration.md): the backend's environment variables and their defaults
+- [Load test report](load-test.md): 300 Customers racing for Holds under k6, with throughput, latency and the oversell check
