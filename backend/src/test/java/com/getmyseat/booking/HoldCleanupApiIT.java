@@ -27,7 +27,9 @@ import com.getmyseat.testsupport.TestJwts;
 
 import tools.jackson.databind.JsonNode;
 
-/** The cleanup job expires Holds that nobody reads, here every 100 milliseconds. */
+/**
+ * The cleanup job expires Holds that nobody reads, and forgets day-old Idempotency-Keys, here every 100 milliseconds.
+ */
 @ApiIntegrationTest
 @TestPropertySource(properties = "getmyseat.holds.cleanup-interval=100ms")
 class HoldCleanupApiIT {
@@ -110,6 +112,28 @@ class HoldCleanupApiIT {
 		// A few more cleanup runs mustn't give anything back either.
 		Thread.sleep(300);
 		assertThat(standing(this.holds.availability(show.id()))).isEqualTo(500);
+	}
+
+	@Test
+	void theCleanupJobForgetsIdempotencyKeysAfter24Hours() throws InterruptedException {
+		SellableShow show = this.holds.publishedShow();
+		String customer = this.jwts.customer().encode();
+		this.holds.hold(show.id(), customer, body(List.of(show.seats().get(0))), "day-old").expectStatus().isCreated();
+		String differentRequest = body(List.of(show.seats().get(1)));
+		this.clock.advance(Duration.ofHours(23));
+		Thread.sleep(300);
+		this.holds.hold(show.id(), customer, differentRequest, "day-old").expectStatus().isEqualTo(409);
+
+		this.clock.advance(Duration.ofHours(1).plusSeconds(1));
+
+		Instant deadline = Instant.now().plusSeconds(10);
+		while (this.holds.hold(show.id(), customer, differentRequest, "day-old")
+			.returnResult()
+			.getStatus()
+			.value() != 201) {
+			assertThat(Instant.now()).as("the key to be forgotten").isBefore(deadline);
+			Thread.sleep(50);
+		}
 	}
 
 	/** Polls the Show's availability until it matches, for up to 10 seconds. */

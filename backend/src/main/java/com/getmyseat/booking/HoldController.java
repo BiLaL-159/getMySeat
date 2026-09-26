@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.getmyseat.access.Caller;
@@ -19,6 +20,7 @@ import com.getmyseat.booking.InventoryUnavailableException.UnavailableSection;
 import com.getmyseat.shared.api.ConflictException;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -29,6 +31,8 @@ import jakarta.validation.constraints.Size;
 
 @RestController
 class HoldController {
+
+	static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 
 	private final HoldService service;
 
@@ -76,23 +80,38 @@ class HoldController {
 	@PostMapping("/api/v1/shows/{id}/holds")
 	@PreAuthorize("hasRole('CUSTOMER')")
 	@Operation(summary = "Hold Seats and General Admission places at a published Show",
-			description = "All or nothing, 1 to 10 tickets. Prices are the Section Prices at the moment of the Hold, and the Hold expires after the Hold time, 10 minutes by default. You have at most one active Hold per Show: a new one releases your previous Hold for the Show, so it can include the same Seats. If anything you asked for is gone, nothing is held, your previous Hold stays active, and you get 409 naming what's unavailable. A draft or unknown Show is 404; a Show that has started is 409.")
-	@ApiResponse(responseCode = "201", description = "Held")
+			description = "All or nothing, 1 to 10 tickets. Prices are the Section Prices at the moment of the Hold, and the Hold expires after the Hold time, 10 minutes by default. You have at most one active Hold per Show: a new one releases your previous Hold for the Show, so it can include the same Seats. If anything you asked for is gone, nothing is held, your previous Hold stays active, and you get 409 naming what's unavailable. A draft or unknown Show is 404; a Show that has started is 409. Send an Idempotency-Key with every Hold: a retry with the same key and request (the Show and the same items, in any order) returns 201 with the original Hold as it is now, and holds nothing more. A request that fails leaves the key unused, so its retry tries again.")
+	@ApiResponse(responseCode = "201", description = "Held, or the Hold that an earlier request with the same Idempotency-Key made")
+	@ApiResponse(responseCode = "400",
+			description = "The request is invalid, or the Idempotency-Key header is missing or not 1 to 255 characters (type urn:getmyseat:problem:validation)",
+			content = @Content(mediaType = "application/problem+json"))
 	@ApiResponse(responseCode = "409",
-			description = "Some of the inventory is unavailable (type urn:getmyseat:problem:inventory-unavailable), or the Show has started or you were making another Hold for it at the same moment (type urn:getmyseat:problem:conflict)",
+			description = "Some of the inventory is unavailable (type urn:getmyseat:problem:inventory-unavailable), you used the Idempotency-Key before for a different request (type urn:getmyseat:problem:idempotency-key-reused), or the Show has started or you were making another Hold for it at the same moment (type urn:getmyseat:problem:conflict)",
 			content = @Content(mediaType = "application/problem+json",
 					schema = @Schema(implementation = InventoryUnavailableProblem.class)))
 	ResponseEntity<HoldResponse> create(@PathVariable UUID id, Caller customer,
+			@Parameter(description = "Your own key for this request, 1 to 255 characters, such as a fresh UUID. Retry with the same key and the same request to get the original Hold back; the key is yours alone and is forgotten after 24 hours.")
+			@RequestHeader(IDEMPOTENCY_KEY) @Size(min = 1, max = 255) String idempotencyKey,
 			@Valid @RequestBody HoldRequest request) {
 		HoldResponse hold;
 		try {
-			hold = this.service.create(id, customer, request.seatIds(), request.places());
+			hold = createOrReplay(id, customer, idempotencyKey, request);
 		}
 		catch (PessimisticLockingFailureException ex) {
 			// A deadlock or serialization failure: the transaction rolled back, so it's safe to try again.
 			throw InventoryUnavailableException.contended();
 		}
 		return ResponseEntity.created(URI.create("/api/v1/holds/" + hold.id())).body(hold);
+	}
+
+	private HoldResponse createOrReplay(UUID show, Caller customer, String idempotencyKey, HoldRequest request) {
+		try {
+			return this.service.create(show, customer, idempotencyKey, request.seatIds(), request.places());
+		}
+		catch (HoldService.IdempotencyKeyTakenException ex) {
+			// A concurrent request with the same key committed first, so this one rolled back; give back its Hold.
+			return this.service.replay(show, customer, idempotencyKey, request.seatIds(), request.places());
+		}
 	}
 
 	@GetMapping("/api/v1/holds/{id}")

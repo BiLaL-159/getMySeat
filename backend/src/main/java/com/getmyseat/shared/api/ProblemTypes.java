@@ -22,6 +22,9 @@ public final class ProblemTypes {
 	/** Some of the Seats or General Admission places asked for are gone; nothing was held. */
 	public static final URI INVENTORY_UNAVAILABLE = of("inventory-unavailable");
 
+	/** The {@code Idempotency-Key} was used before for a different request; nothing was done. */
+	public static final URI IDEMPOTENCY_KEY_REUSED = of("idempotency-key-reused");
+
 	public static final URI UPSTREAM_UNAVAILABLE = of("upstream-unavailable");
 
 	public static final URI INTERNAL_ERROR = of("internal-error");

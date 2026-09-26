@@ -8,6 +8,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -22,8 +23,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -131,9 +135,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 				}
 				return;
 			}
-			RequestParam requestParam = result.getMethodParameter().getParameterAnnotation(RequestParam.class);
-			String field = (requestParam != null && !requestParam.name().isEmpty()) ? requestParam.name()
-					: result.getMethodParameter().getParameterName();
+			String field = fieldName(result.getMethodParameter());
 			result.getResolvableErrors().forEach(error -> errors.add(new FieldProblem(field, error.getDefaultMessage())));
 		});
 		return asObject(validationProblem(errors));
@@ -150,6 +152,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	protected @Nullable ResponseEntity<Object> handleMissingServletRequestParameter(
 			MissingServletRequestParameterException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		return asObject(validationProblem(List.of(new FieldProblem(ex.getParameterName(), "is required"))));
+	}
+
+	@Override
+	protected @Nullable ResponseEntity<Object> handleServletRequestBindingException(ServletRequestBindingException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		if (ex instanceof MissingRequestHeaderException missing) {
+			return asObject(validationProblem(List.of(new FieldProblem(missing.getHeaderName(), "is required"))));
+		}
+		return super.handleServletRequestBindingException(ex, headers, status, request);
 	}
 
 	@Override
@@ -179,6 +190,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			}
 		}
 		return super.createResponseEntity(body, headers, statusCode, request);
+	}
+
+	/** A request parameter or header by the name the client sends, else the Java parameter's name. */
+	private static @Nullable String fieldName(MethodParameter parameter) {
+		RequestParam requestParam = parameter.getParameterAnnotation(RequestParam.class);
+		if (requestParam != null && !requestParam.name().isEmpty()) {
+			return requestParam.name();
+		}
+		RequestHeader requestHeader = parameter.getParameterAnnotation(RequestHeader.class);
+		if (requestHeader != null && !requestHeader.name().isEmpty()) {
+			return requestHeader.name();
+		}
+		return parameter.getParameterName();
 	}
 
 	private ResponseEntity<ProblemDetail> unauthorized(HttpServletResponse response) {
