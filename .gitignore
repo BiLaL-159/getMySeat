@@ -19,3 +19,6 @@ node_modules/
 *.iml
 .vscode/
 .DS_Store
+
+# Design references (local only)
+frontend_design/

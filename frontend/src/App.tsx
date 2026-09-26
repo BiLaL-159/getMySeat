@@ -1,10 +1,7 @@
+import Landing from './landing/Landing.tsx'
+
 function App() {
-  return (
-    <main>
-      <h1>GetMySeat</h1>
-      <p>Frontend coming in F1.</p>
-    </main>
-  )
+  return <Landing />
 }
 
 export default App
