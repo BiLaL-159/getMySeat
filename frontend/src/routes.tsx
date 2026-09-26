@@ -32,6 +32,16 @@ export const routes: RouteObject[] = [
     lazy: async () => ({ Component: (await import('./app/SignInCallback.tsx')).default }),
   },
   {
+    // The public app: the same header, but no forced sign-in.
+    lazy: async () => ({ Component: (await import('./app/PublicShell.tsx')).default }),
+    children: [
+      {
+        path: '/shows/:id',
+        lazy: async () => ({ Component: (await import('./shows/ShowPage.tsx')).default }),
+      },
+    ],
+  },
+  {
     // The signed-in app: AppShell signs the visitor in and loads GET /me before any page renders.
     lazy: async () => ({ Component: (await import('./app/AppShell.tsx')).default }),
     children: [

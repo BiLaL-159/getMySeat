@@ -42,6 +42,11 @@ export function resetAuth() {
   actions.signoutRedirect.mockReset()
 }
 
+// For a faked API client: the token the signed-in visitor would send, if any.
+export function accessToken() {
+  return state.user?.access_token
+}
+
 export function useAuth() {
   return { ...state, ...actions } as unknown as AuthContextProps
 }
