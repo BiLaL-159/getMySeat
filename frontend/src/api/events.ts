@@ -46,7 +46,7 @@ export function useEventSearch(query: EventSearchQuery) {
   })
 }
 
-export const showsPageSize = 20
+const showsPageSize = 20
 
 // One page (zero-based) of an Event's upcoming Shows, soonest first. Keyed by the caller too,
 // since its owner also sees drafts and past Shows. The last page stays up while the next loads.

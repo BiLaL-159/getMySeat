@@ -28,7 +28,7 @@ function EventPage() {
       </div>
     )
   }
-  return <EventDetails event={event.data} />
+  return <EventDetails id={id} event={event.data} />
 }
 
 const languageNames = new Intl.DisplayNames('en', { type: 'language' })
@@ -42,7 +42,7 @@ function languageName(code: string) {
   }
 }
 
-function EventDetails({ event }: { event: EventResponse }) {
+function EventDetails({ id, event }: { id: string; event: EventResponse }) {
   return (
     <Card>
       <CardHeader>
@@ -56,7 +56,7 @@ function EventDetails({ event }: { event: EventResponse }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         <p className="whitespace-pre-line">{event.description}</p>
-        <UpcomingShows eventId={event.id!} />
+        <UpcomingShows eventId={id} />
       </CardContent>
     </Card>
   )
@@ -80,7 +80,13 @@ function UpcomingShows({ eventId }: { eventId: string }) {
           <Button variant="outline" onClick={() => void shows.refetch()}>Try again</Button>
         </div>
       ) : !shows.data.content?.length ? (
-        <p className="text-muted-foreground">There are no upcoming Shows of this Event.</p>
+        page > 1 && shows.data.page?.totalElements ? (
+          <p className="text-muted-foreground">
+            There&apos;s no page {page} of Shows. <Link to="." className="underline">See the first page</Link>
+          </p>
+        ) : (
+          <p className="text-muted-foreground">There are no upcoming Shows of this Event.</p>
+        )
       ) : (
         <>
           <ul aria-label="Shows" className="divide-y">

@@ -47,8 +47,8 @@ function show(id: string, startsAt: string, venue: Record<string, string>) {
 const blueFrog = { id: 'venue-1', name: 'Blue Frog', address: '3 Mathuradas Mills', city: 'Mumbai', timeZone: 'Asia/Kolkata' }
 const roundhouse = { id: 'venue-2', name: 'Roundhouse', address: 'Chalk Farm Road', city: 'London', timeZone: 'Europe/London' }
 
-function page(content: unknown[], number = 0, totalPages = 1) {
-  return { content, page: { size: 20, number, totalElements: content.length, totalPages } }
+function page(content: unknown[], number = 0, totalPages = 1, totalElements = content.length) {
+  return { content, page: { size: 20, number, totalElements, totalPages } }
 }
 
 beforeEach(() => {
@@ -135,6 +135,20 @@ describe('event page', () => {
     expect(await screen.findByText(/no upcoming shows/i)).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 1, name: /indie night/i })).toBeInTheDocument()
     expect(screen.queryByRole('list', { name: /shows/i })).not.toBeInTheDocument()
+  })
+
+  it('leads back to the first page from a page past the last', async () => {
+    const user = userEvent.setup()
+    api.responses[showsPath] = (url) =>
+      url.searchParams.get('page') === '0'
+        ? Response.json(page([show('show-1', '2099-10-03T14:00:00Z', blueFrog)]))
+        : Response.json(page([], 4, 1, 1))
+    renderRoute('/events/event-1?page=5')
+
+    expect(await screen.findByText(/no page 5 of shows/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no upcoming shows/i)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: /first page/i }))
+    expect(await screen.findByRole('link', { name: /Sat, 3 Oct, 2099/ })).toHaveAttribute('href', '/shows/show-1')
   })
 
   it('says so when the Event does not exist', async () => {
