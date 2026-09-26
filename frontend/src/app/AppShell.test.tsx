@@ -1,6 +1,9 @@
-import { screen, within } from '@testing-library/react'
+import { cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ErrorResponse, ErrorTimeout } from 'oidc-client-ts'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetSession } from '@/auth/session.ts'
+import { userManager } from '@/auth/userManager.ts'
 import { resetAuth, setAuth, signedIn, signedOut, signingIn, signinRedirect, signoutRedirect } from '@/test/fakeAuth.ts'
 import { renderRoute } from '@/test/renderRoute.tsx'
 import { holdSessionRestore } from '@/test/sessionRestore.ts'
@@ -10,16 +13,38 @@ vi.mock('react-oidc-context', () => import('@/test/fakeAuth.ts'))
 const meResponse = vi.hoisted(() => ({ respond: (): Response => Response.json({}) }))
 vi.mock('@/api/api.ts', async () => {
   const { createApiClient } = await import('@/api/client.ts')
+  const { expireSession, renewSession } = await import('@/auth/session.ts')
   return {
-    api: createApiClient({ baseUrl: 'http://api.test', getAccessToken: () => 'token', fetch: async () => meResponse.respond() }),
+    api: createApiClient({
+      baseUrl: 'http://api.test',
+      getAccessToken: () => 'token',
+      fetch: async () => meResponse.respond(),
+      reauthenticate: renewSession,
+      expireSession,
+    }),
   }
 })
 
+function meWithRoles(...roles: string[]) {
+  meResponse.respond = () => Response.json({ subject: 'user-1', name: 'Asha Rao', email: 'asha@example.com', roles })
+}
+
 beforeEach(() => {
   resetAuth()
-  meResponse.respond = () =>
-    Response.json({ subject: 'user-1', name: 'Asha Rao', email: 'asha@example.com', roles: ['CUSTOMER', 'ORGANIZER'] })
+  meWithRoles('CUSTOMER', 'ORGANIZER')
 })
+
+afterEach(() => {
+  // Unmount first, so no page re-renders (and refetches) on the reset.
+  cleanup()
+  resetSession()
+  vi.restoreAllMocks()
+})
+
+async function navEntries() {
+  const nav = await screen.findByRole('navigation', { name: /main/i })
+  return within(nav).getAllByRole('link').map((link) => link.textContent)
+}
 
 describe('app shell', () => {
   it('shows the name and roles from GET /me when signed in', async () => {
@@ -96,6 +121,115 @@ describe('app shell', () => {
 
     await user.click(screen.getByRole('button', { name: /light theme/i }))
     expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+  })
+})
+
+describe('nav', () => {
+  it.each([
+    [['CUSTOMER'], ['My account']],
+    [['CUSTOMER', 'ORGANIZER'], ['My account', 'Organizer']],
+    [['CUSTOMER', 'ADMIN'], ['My account', 'Admin']],
+  ])('shows the entries for roles %j', async (roles, entries) => {
+    setAuth(signedIn())
+    meWithRoles(...roles)
+    renderRoute('/app')
+
+    expect(await navEntries()).toEqual(entries)
+  })
+})
+
+describe('role guards', () => {
+  it.each([
+    ['/organizer', 'ORGANIZER', /organizer/i],
+    ['/admin', 'ADMIN', /admin/i],
+  ])('lets a Customer with the role into %s', async (path, role, heading) => {
+    setAuth(signedIn())
+    meWithRoles('CUSTOMER', role)
+    renderRoute(path)
+
+    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/organizer', ['CUSTOMER']],
+    ['/admin', ['CUSTOMER', 'ORGANIZER']],
+  ])('shows a signed-in Customer without the role that %s is not allowed', async (path, roles) => {
+    setAuth(signedIn())
+    meWithRoles(...roles)
+    renderRoute(path)
+
+    expect(await screen.findByRole('heading', { name: /not allowed/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /back to my account/i })).toHaveAttribute('href', '/app')
+  })
+
+  it('guards nested pages too', async () => {
+    setAuth(signedIn())
+    meWithRoles('CUSTOMER')
+    renderRoute('/admin/anything')
+
+    expect(await screen.findByRole('heading', { name: /not allowed/i })).toBeInTheDocument()
+  })
+
+  it('sends a signed-out visitor to sign in, coming back to the guarded page', async () => {
+    setAuth(signedOut())
+    renderRoute('/organizer?tab=venues')
+
+    expect(await screen.findByText(/signing you in/i)).toBeInTheDocument()
+    expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/organizer?tab=venues' } })
+  })
+})
+
+describe('session expired', () => {
+  it('sends you back through sign-in when the API rejects the session and it cannot be renewed', async () => {
+    vi.spyOn(userManager, 'signinSilent').mockRejectedValue(new ErrorResponse({ error: 'login_required' }))
+    setAuth(signedIn())
+    meResponse.respond = () =>
+      Response.json({ type: 'urn:getmyseat:problem:unauthorized', status: 401 }, { status: 401 })
+    renderRoute('/organizer')
+
+    expect(await screen.findByRole('heading', { name: /session has expired/i })).toBeInTheDocument()
+    expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/organizer' } })
+  })
+
+  it('offers to sign in again if the redirect does not happen', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(userManager, 'signinSilent').mockRejectedValue(new ErrorResponse({ error: 'login_required' }))
+    setAuth(signedIn())
+    meResponse.respond = () =>
+      Response.json({ type: 'urn:getmyseat:problem:unauthorized', status: 401 }, { status: 401 })
+    renderRoute('/organizer')
+
+    await user.click(await screen.findByRole('button', { name: /sign in again/i }))
+    expect(signinRedirect).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('session renewal', () => {
+  it('does not end the session when Keycloak cannot be reached to renew it', async () => {
+    vi.spyOn(userManager, 'signinSilent').mockRejectedValue(new ErrorTimeout('IFrame timed out'))
+    setAuth(signedIn())
+    meResponse.respond = () =>
+      Response.json({ type: 'urn:getmyseat:problem:unauthorized', status: 401 }, { status: 401 })
+    renderRoute('/app')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/can.t reach getmyseat/i)
+    expect(screen.queryByRole('heading', { name: /session has expired/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('API unreachable', () => {
+  it('says the API cannot be reached, and retries', async () => {
+    const user = userEvent.setup()
+    setAuth(signedIn())
+    meResponse.respond = () => {
+      throw new TypeError('Failed to fetch')
+    }
+    renderRoute('/app')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/can.t reach getmyseat/i)
+    meWithRoles('CUSTOMER')
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+    expect(await screen.findByRole('heading', { name: /asha rao/i })).toBeInTheDocument()
   })
 })
 
