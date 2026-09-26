@@ -96,19 +96,31 @@ class HoldController {
 	}
 
 	@GetMapping("/api/v1/holds/{id}")
-	@Operation(summary = "One of your Holds", description = "Anyone else's Hold is 404.")
+	@Operation(summary = "One of your Holds",
+			description = "An active Hold read after its expiry time expires right then, gives back its inventory and comes back EXPIRED. Anyone else's Hold is 404.")
+	@ApiResponse(responseCode = "200", description = "Your Hold")
+	@ApiResponse(responseCode = "404", description = "No Hold of yours with that id",
+			content = @Content(mediaType = "application/problem+json"))
+	@ApiResponse(responseCode = "409",
+			description = "Your Hold was expiring while other Holds were in flight for the same inventory (try again)",
+			content = @Content(mediaType = "application/problem+json"))
 	HoldResponse find(@PathVariable UUID id, Caller customer) {
-		return this.service.find(id, customer);
+		try {
+			return this.service.find(id, customer);
+		}
+		catch (PessimisticLockingFailureException ex) {
+			throw expiryContended();
+		}
 	}
 
 	@PostMapping("/api/v1/holds/{id}/release")
 	@Operation(summary = "Release one of your Holds early",
-			description = "Its Seats and General Admission places become available again. Anyone else's Hold is 404; a Hold that isn't active is 409.")
+			description = "Its Seats and General Admission places become available again. Anyone else's Hold is 404; a Hold that has expired, or otherwise isn't active, is 409.")
 	@ApiResponse(responseCode = "200", description = "Released")
 	@ApiResponse(responseCode = "404", description = "No Hold of yours with that id",
 			content = @Content(mediaType = "application/problem+json"))
 	@ApiResponse(responseCode = "409",
-			description = "The Hold isn't active, or other Holds were in flight for the same inventory (try again)",
+			description = "The Hold has expired or isn't active, or other Holds were in flight for the same inventory (try again)",
 			content = @Content(mediaType = "application/problem+json"))
 	HoldResponse release(@PathVariable UUID id, Caller customer) {
 		try {
@@ -122,12 +134,28 @@ class HoldController {
 	}
 
 	@GetMapping("/api/v1/shows/{id}/holds/mine")
-	@Operation(summary = "Your active Hold for a Show", description = "404 if you have none.")
+	@Operation(summary = "Your active Hold for a Show",
+			description = "404 if you have none. An active Hold past its expiry time expires right then and gives back its inventory, so it's 404 too.")
 	@ApiResponse(responseCode = "200", description = "Your active Hold")
 	@ApiResponse(responseCode = "404", description = "You have no active Hold for the Show",
 			content = @Content(mediaType = "application/problem+json"))
+	@ApiResponse(responseCode = "409",
+			description = "Your Hold was expiring while other Holds were in flight for the same inventory (try again)",
+			content = @Content(mediaType = "application/problem+json"))
 	HoldResponse mine(@PathVariable UUID id, Caller customer) {
-		return this.service.mine(id, customer);
+		try {
+			return this.service.mine(id, customer);
+		}
+		catch (PessimisticLockingFailureException ex) {
+			throw expiryContended();
+		}
+	}
+
+	/** Reading an expired Hold expires it, which can deadlock with Holds being made for the same inventory. */
+	private static ConflictException expiryContended() {
+		// The transaction rolled back, so it's safe to try again.
+		return new ConflictException(
+				"Other Holds were in flight for the same inventory while your Hold expired. Try again.");
 	}
 
 }

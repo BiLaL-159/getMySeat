@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -47,6 +48,15 @@ class HoldService {
 	record Places(UUID sectionId, int quantity) {
 	}
 
+	/** Some General Admission places in one Section at one Show, to give back. */
+	private record ShowPlaces(UUID sectionId, UUID showId, int quantity) {
+
+		ShowPlaces plus(ShowPlaces other) {
+			return new ShowPlaces(this.sectionId, this.showId, this.quantity + other.quantity);
+		}
+
+	}
+
 	private final ShowCatalogue catalogue;
 
 	private final ShowInventory inventory;
@@ -79,11 +89,11 @@ class HoldService {
 			.filter(SellableShow::published)
 			.orElseThrow(() -> new NotFoundException("No Show with that id."));
 		List<HoldItem> items = checkedAndPriced(show, seats, places);
-		Instant now = this.clock.instant().truncatedTo(ChronoUnit.MICROS);
+		Instant now = now();
 		if (!now.isBefore(show.startsAt())) {
 			throw new ConflictException("The Show has already started.");
 		}
-		this.holds.findActive(customer.subject(), show.id()).ifPresent(this::release);
+		this.holds.findActive(customer.subject(), show.id()).ifPresent(old -> end(old, old.dueAt(now) ? Hold.Status.EXPIRED : Hold.Status.RELEASED));
 		Hold hold;
 		try {
 			hold = this.holds.saveAndFlush(new Hold(customer.subject(), show.id(), items, now,
@@ -102,31 +112,67 @@ class HoldService {
 		return HoldResponse.of(hold);
 	}
 
-	/** @throws NotFoundException unless the caller owns the Hold */
-	@Transactional(readOnly = true)
+	/**
+	 * An active Hold past its expiry time expires now, and gives back its inventory.
+	 * @throws NotFoundException unless the caller owns the Hold
+	 */
+	@Transactional
 	HoldResponse find(UUID id, Caller customer) {
-		return HoldResponse.of(owned(id, customer));
+		Hold hold = owned(id, customer);
+		if (expireIfDue(hold, now())) {
+			hold = this.holds.findById(id).orElseThrow();
+		}
+		return HoldResponse.of(hold);
 	}
 
-	/** @throws NotFoundException if the caller has no active Hold for the Show */
-	@Transactional(readOnly = true)
+	/**
+	 * An active Hold past its expiry time expires now, gives back its inventory, and isn't found.
+	 * @throws NotFoundException if the caller has no active Hold for the Show
+	 */
+	@Transactional(noRollbackFor = NotFoundException.class)
 	HoldResponse mine(UUID showId, Caller customer) {
+		Instant now = now();
 		return this.holds.findActive(customer.subject(), showId)
+			.filter(hold -> !expireIfDue(hold, now))
 			.map(HoldResponse::of)
 			.orElseThrow(() -> new NotFoundException("You have no active Hold for that Show."));
 	}
 
 	/**
-	 * Releases the caller's Hold and gives back its inventory.
+	 * Releases the caller's Hold and gives back its inventory. An active Hold past its expiry time expires instead.
 	 * @throws NotFoundException unless the caller owns the Hold
-	 * @throws ConflictException if the Hold isn't active
+	 * @throws ConflictException if the Hold has expired or otherwise isn't active
 	 */
-	@Transactional
+	@Transactional(noRollbackFor = ConflictException.class)
 	HoldResponse release(UUID id, Caller customer) {
-		if (!release(owned(id, customer))) {
+		Hold hold = owned(id, customer);
+		if (expireIfDue(hold, now()) || hold.status() == Hold.Status.EXPIRED) {
+			throw new ConflictException("The Hold has expired.");
+		}
+		if (!end(hold, Hold.Status.RELEASED)) {
 			throw new ConflictException("The Hold isn't active.");
 		}
 		return HoldResponse.of(this.holds.findById(id).orElseThrow());
+	}
+
+	/**
+	 * Expires up to {@code limit} active Holds past their expiry time and gives back their inventory, skipping Holds
+	 * that another transaction has locked.
+	 * @return how many Holds expired
+	 */
+	@Transactional
+	int expireDue(int limit) {
+		List<Hold> due = this.holds.lockDue(now(), limit);
+		if (due.isEmpty()) {
+			return 0;
+		}
+		List<UUID> ids = due.stream().map(Hold::id).toList();
+		// Read before the transition clears the persistence context.
+		List<ShowPlaces> places = placesOf(due);
+		// Every one of them is locked by this transaction and still active, so every one expires.
+		this.holds.expire(ids);
+		giveBack(ids, places);
+		return due.size();
 	}
 
 	private Hold owned(UUID id, Caller customer) {
@@ -135,25 +181,63 @@ class HoldService {
 			.orElseThrow(() -> new NotFoundException("No Hold with that id."));
 	}
 
+	private Instant now() {
+		return this.clock.instant().truncatedTo(ChronoUnit.MICROS);
+	}
+
 	/**
-	 * {@code ACTIVE → RELEASED} with a conditional update, then gives back the inventory only if this call made the
-	 * transition, so nothing is given back twice. General Admission Sections go in id order, as when claiming. A
-	 * replacement takes these locks before the new Hold's, so it can deadlock with another Hold; the database then
-	 * aborts one of them, which the caller sees as a retryable {@code 409}.
-	 * @return whether the Hold was active
+	 * Expires the Hold if it is active and its expiry time has come. Clears the persistence context when it does, so
+	 * re-read the Hold afterwards.
+	 * @return whether the Hold was due, whether or not this call was the one that expired it
 	 */
-	private boolean release(Hold hold) {
-		// Read before the release clears the persistence context.
-		List<HoldItem> items = hold.items();
-		if (this.holds.release(hold.id()) == 0) {
+	private boolean expireIfDue(Hold hold, Instant now) {
+		if (!hold.dueAt(now)) {
 			return false;
 		}
-		this.inventory.releaseSeats(hold.id());
-		items.stream()
-			.filter(item -> item.kind() == HoldItem.Kind.GENERAL_ADMISSION)
-			.sorted(Comparator.comparing(HoldItem::sectionId))
-			.forEach(item -> this.inventory.releasePlaces(hold.showId(), item.sectionId(), item.quantity()));
+		end(hold, Hold.Status.EXPIRED);
 		return true;
+	}
+
+	/**
+	 * {@code ACTIVE → RELEASED} or {@code ACTIVE → EXPIRED} with a conditional update, then gives back the inventory
+	 * only if this call made the transition, so nothing is given back twice. A replacement takes these locks before
+	 * the new Hold's, so it can deadlock with another Hold; the database then aborts one of them, which the caller
+	 * sees as a retryable {@code 409}.
+	 * @return whether the Hold was active
+	 */
+	private boolean end(Hold hold, Hold.Status outcome) {
+		// Read before the transition clears the persistence context.
+		List<ShowPlaces> places = placesOf(List.of(hold));
+		if (this.holds.end(hold.id(), outcome) == 0) {
+			return false;
+		}
+		giveBack(List.of(hold.id()), places);
+		return true;
+	}
+
+	/**
+	 * Gives back the inventory of Holds that have just ended: Seats first, then General Admission Sections in id
+	 * order, as when claiming.
+	 * @param places from {@link #placesOf}
+	 */
+	private void giveBack(List<UUID> holds, List<ShowPlaces> places) {
+		this.inventory.releaseSeats(holds);
+		places.forEach(given -> this.inventory.releasePlaces(given.showId(), given.sectionId(), given.quantity()));
+	}
+
+	/** The Holds' General Admission places, one entry per Section and Show, in Section id order. */
+	private static List<ShowPlaces> placesOf(List<Hold> holds) {
+		return holds.stream()
+			.flatMap(hold -> hold.items()
+				.stream()
+				.filter(item -> item.kind() == HoldItem.Kind.GENERAL_ADMISSION)
+				.map(item -> new ShowPlaces(item.sectionId(), hold.showId(), item.quantity())))
+			.collect(Collectors.toMap(given -> List.of(given.sectionId(), given.showId()), given -> given,
+					ShowPlaces::plus))
+			.values()
+			.stream()
+			.sorted(Comparator.comparing(ShowPlaces::sectionId).thenComparing(ShowPlaces::showId))
+			.toList();
 	}
 
 	/** Seats first, then General Admission Sections in id order, so every Hold takes its locks in the same order. */

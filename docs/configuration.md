@@ -35,3 +35,4 @@ Approving an Organizer Application grants the `ORGANIZER` realm role through the
 | Variable | Default | Purpose |
 |---|---|---|
 | `HOLD_TIME` | `10m` | How long a Hold lasts before it expires. Any Spring duration, such as `90s` |
+| `HOLD_CLEANUP_INTERVAL` | `30s` | The pause between runs of the job that expires Holds nobody reads. A Seat whose Hold has expired stays unavailable for at most this long |

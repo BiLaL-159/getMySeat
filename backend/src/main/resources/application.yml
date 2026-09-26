@@ -47,6 +47,9 @@ getmyseat:
   holds:
     # How long a Hold keeps its Seats and General Admission places before it expires.
     hold-time: ${HOLD_TIME:10m}
+    # The pause between runs of the job that expires Holds nobody reads. A Seat whose Hold has expired but that
+    # nobody has read stays unavailable for at most this long.
+    cleanup-interval: ${HOLD_CLEANUP_INTERVAL:30s}
 
 management:
   endpoints:

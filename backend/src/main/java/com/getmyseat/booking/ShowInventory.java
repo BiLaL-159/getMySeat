@@ -94,19 +94,23 @@ class ShowInventory {
 				show, section));
 	}
 
-	/** Makes every Seat the Hold holds available again, taking the row locks in Seat id order. */
-	void releaseSeats(UUID hold) {
-		this.jdbc.update("""
-				WITH released AS (
-				    SELECT show_id, seat_id FROM seat_inventory
-				    WHERE hold_id = ? AND status = 'HELD'
-				    ORDER BY seat_id
-				    FOR UPDATE
-				)
-				UPDATE seat_inventory SET status = 'AVAILABLE', hold_id = NULL
-				FROM released
-				WHERE seat_inventory.show_id = released.show_id AND seat_inventory.seat_id = released.seat_id
-				""", hold);
+	/** Makes every Seat the Holds hold available again, taking the row locks in Seat id order. */
+	void releaseSeats(Collection<UUID> holds) {
+		this.jdbc.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement("""
+					WITH released AS (
+					    SELECT show_id, seat_id FROM seat_inventory
+					    WHERE hold_id = ANY (?) AND status = 'HELD'
+					    ORDER BY seat_id, show_id
+					    FOR UPDATE
+					)
+					UPDATE seat_inventory SET status = 'AVAILABLE', hold_id = NULL
+					FROM released
+					WHERE seat_inventory.show_id = released.show_id AND seat_inventory.seat_id = released.seat_id
+					""");
+			statement.setArray(1, connection.createArrayOf("uuid", holds.toArray()));
+			return statement;
+		});
 	}
 
 	/** Gives {@code quantity} places back to the Show's General Admission Section. */

@@ -11,7 +11,10 @@ import com.getmyseat.catalogue.SellableShow;
 import com.getmyseat.catalogue.ShowCatalogue;
 import com.getmyseat.shared.api.NotFoundException;
 
-/** A published Show's live availability, for anyone. */
+/**
+ * A published Show's live availability, for anyone. Reading it doesn't expire Holds, so a Seat whose Hold has expired
+ * shows as unavailable until {@link HoldCleanup} runs or the Hold is read.
+ */
 @Service
 class AvailabilityService {
 
