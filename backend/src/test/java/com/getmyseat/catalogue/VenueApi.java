@@ -46,11 +46,17 @@ final class VenueApi {
 	}
 
 	String withLayout(String token, String venue) {
+		return withLayout(token, venue, 500);
+	}
+
+	/** Like {@link #withLayout(String, String)}, with room for the given number in the General Admission Section. */
+	String withLayout(String token, String venue, int standingCapacity) {
 		addSection(venue, token, """
 				{ "name": "Stalls", "kind": "SEATED",
 				  "rows": [ { "label": "A", "seatCount": 2 }, { "label": "B", "seatCount": 2 } ] }
 				""").expectStatus().isCreated();
-		addSection(venue, token, "{ \"name\": \"Standing\", \"kind\": \"GENERAL_ADMISSION\", \"capacity\": 500 }")
+		addSection(venue, token,
+				"{ \"name\": \"Standing\", \"kind\": \"GENERAL_ADMISSION\", \"capacity\": %d }".formatted(standingCapacity))
 			.expectStatus()
 			.isCreated();
 		return venue;

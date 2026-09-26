@@ -27,7 +27,7 @@ final class HoldApi {
 	 * A published Show at a Venue with a Seated Section and a General Admission Section.
 	 * @param stalls the Seated Section, with Seats A1, A2, B1 and B2
 	 * @param seats the Stalls' Seat ids, in that order
-	 * @param standing the General Admission Section, with room for 500
+	 * @param standing the General Admission Section, with room for 500 unless asked otherwise
 	 */
 	record SellableShow(String id, String stalls, List<String> seats, String standing) {
 	}
@@ -46,8 +46,13 @@ final class HoldApi {
 
 	/** A fresh published Show, with the Stalls at ₹750 and Standing at ₹400. */
 	SellableShow publishedShow() {
+		return publishedShow(500);
+	}
+
+	/** Like {@link #publishedShow()}, with room for the given number in the Standing Section. */
+	SellableShow publishedShow(int standingCapacity) {
 		String organizer = this.jwts.organizer().encode();
-		String venue = this.shows.approvedVenue();
+		String venue = this.shows.approvedVenue(standingCapacity);
 		String show = this.shows.draftShow(this.shows.publishedEvent(organizer), organizer, venue);
 		List<String> sections = this.shows.sections(venue);
 		this.shows.setPrices(show, organizer, ShowApi.prices(sections, STALLS_PAISE, STANDING_PAISE))

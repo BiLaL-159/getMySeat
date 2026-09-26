@@ -53,8 +53,14 @@ public final class ShowApi {
 
 	/** An approved Venue, proposed by a fresh Organizer, with the layout from {@link VenueApi#withLayout}. */
 	public String approvedVenue() {
+		return approvedVenue(500);
+	}
+
+	/** Like {@link #approvedVenue()}, with room for the given number in the General Admission Section. */
+	public String approvedVenue(int standingCapacity) {
 		String owner = this.venues.jwts.organizer().encode();
-		return this.venues.approve(owner, this.venues.draftWithLayout(owner));
+		return this.venues.approve(owner,
+				this.venues.withLayout(owner, this.venues.createVenue(owner), standingCapacity));
 	}
 
 	/** Like {@link #approvedVenue()}, in the given city and IANA time zone. */
