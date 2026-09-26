@@ -18,6 +18,14 @@ The backend is configured through environment variables. Every default points at
 | `JWT_JWK_SET_URI` | `${JWT_ISSUER_URI}/protocol/openid-connect/certs` | Where signing keys are fetched (lazily, so the app boots without Keycloak) |
 | `JWT_AUDIENCE` | `getmyseat-api` | The `aud` every access token must carry |
 
+## Browser access
+
+The SPA is hosted separately and calls the API directly, so the backend answers CORS preflights before authentication. Browsers may send `Authorization`, `Content-Type` and `Idempotency-Key`, and may read `Location`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated origins a browser may call the API from, such as `https://app.example.com,http://localhost:5173`. The default is the Vite dev server. Any other origin's preflight gets `403` |
+
 ## Keycloak Admin API
 
 Approving an Organizer Application grants the `ORGANIZER` realm role through the Keycloak Admin API, signed in as the `getmyseat-backend` client.

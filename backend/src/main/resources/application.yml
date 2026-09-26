@@ -35,6 +35,9 @@ spring:
           audiences: ${JWT_AUDIENCE:getmyseat-api}
 
 getmyseat:
+  cors:
+    # Comma-separated origins a browser may call the API from: the separately hosted SPA. Defaults to the Vite dev server.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   keycloak:
     # The backend's own sign-in to the Keycloak Admin API, used to grant ORGANIZER on approval. Defaults match
     # docker-compose.yml and the realm export; the secret is DEV-ONLY, so always override it elsewhere.
