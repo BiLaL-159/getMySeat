@@ -35,6 +35,7 @@ describe('readSearch', () => {
     ['a negative page', 'page=-2'],
     ['a fractional page', 'page=1.5'],
     ['a page that is not a number', 'page=two'],
+    ['a page past what the API can read', 'page=1e10'],
   ])('ignores %s', (_, query) => {
     expect(read(query)).toEqual(defaultSearch)
   })

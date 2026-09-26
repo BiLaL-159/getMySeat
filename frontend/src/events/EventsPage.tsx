@@ -1,26 +1,18 @@
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { useEventSearch, type EventResponse } from '@/api/events.ts'
+import { eventCategoryLabels, useEventSearch, type EventResponse } from '@/api/events.ts'
 import MessageCard from '@/app/MessageCard.tsx'
 import { problemMessage } from '@/app/problemMessage.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import {
-  categoryLabels,
-  readSearch,
-  sortLabels,
-  toApiQuery,
-  writeSearch,
-  type Category,
-  type EventSearch,
-  type Sort,
-} from './search.ts'
+import { cn } from '@/lib/utils.ts'
+import { readSearch, sortLabels, toApiQuery, writeSearch, type EventSearch, type Sort } from './search.ts'
 
 const selectClass =
   'h-9 w-full rounded-md border border-input bg-transparent px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30'
 
-function href(search: EventSearch) {
+function eventsHref(search: EventSearch) {
   const query = writeSearch(search).toString()
   return query ? `/events?${query}` : '/events'
 }
@@ -59,7 +51,7 @@ function EventsPage() {
           value={search.sort}
           onChange={(event) => setParams(writeSearch({ ...search, sort: event.target.value as Sort, page: 1 }))}
         >
-          {Object.entries(sortLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <Options labels={sortLabels} />
         </select>
       </label>
       <Results search={search} results={results} />
@@ -67,32 +59,40 @@ function EventsPage() {
   )
 }
 
+function Field({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
+  return (
+    <label className={cn('flex flex-col gap-1 font-mono text-sm', className)}>
+      {label}
+      {children}
+    </label>
+  )
+}
+
+function Options({ labels }: { labels: Record<string, string> }) {
+  return Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)
+}
+
 function SearchForm({ search, onSubmit }: { search: EventSearch; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return (
     <form role="search" onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
-      <label className="flex flex-col gap-1 font-mono text-sm sm:col-span-2">
-        Search
+      <Field label="Search" className="sm:col-span-2">
         <Input type="search" name="q" defaultValue={search.q} placeholder="Title or description" />
-      </label>
-      <label className="flex flex-col gap-1 font-mono text-sm">
-        City
+      </Field>
+      <Field label="City">
         <Input name="city" defaultValue={search.city} />
-      </label>
-      <label className="flex flex-col gap-1 font-mono text-sm">
-        Category
+      </Field>
+      <Field label="Category">
         <select name="category" defaultValue={search.category ?? ''} className={selectClass}>
           <option value="">Any category</option>
-          {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <Options labels={eventCategoryLabels} />
         </select>
-      </label>
-      <label className="flex flex-col gap-1 font-mono text-sm">
-        From
+      </Field>
+      <Field label="From">
         <Input type="date" name="from" defaultValue={search.from} />
-      </label>
-      <label className="flex flex-col gap-1 font-mono text-sm">
-        To
+      </Field>
+      <Field label="To">
         <Input type="date" name="to" defaultValue={search.to} />
-      </label>
+      </Field>
       <Button type="submit" className="sm:col-span-2 sm:justify-self-start">Search</Button>
     </form>
   )
@@ -111,10 +111,12 @@ function Results({ search, results }: { search: EventSearch; results: ReturnType
 
   const events = results.data.content ?? []
   const totalPages = results.data.page?.totalPages ?? 0
+  // The page these results are for, which lags the URL while the next page loads.
+  const shown = { ...search, page: (results.data.page?.number ?? search.page - 1) + 1 }
   if (!events.length && totalPages > 0) {
     return (
       <MessageCard title="No Events on this page" description={`There are only ${totalPages} pages of results.`}>
-        <Link to={href({ ...search, page: 1 })} className="underline">Go to the first page</Link>
+        <Link to={eventsHref({ ...search, page: 1 })} className="underline">Go to the first page</Link>
       </MessageCard>
     )
   }
@@ -128,14 +130,14 @@ function Results({ search, results }: { search: EventSearch; results: ReturnType
 
   return (
     <>
-      <ul aria-label="Events" className="grid gap-4">
+      <ul aria-label="Events" aria-busy={results.isPlaceholderData} className={cn('grid gap-4', results.isPlaceholderData && 'opacity-60')}>
         {events.map((event) => <EventCard key={event.id} event={event} />)}
       </ul>
       {totalPages > 1 && (
         <nav aria-label="Pages" className="flex items-center justify-between gap-4 font-mono text-sm">
-          {search.page > 1 ? <Link to={href({ ...search, page: search.page - 1 })} className="underline">Previous</Link> : <span />}
-          <span>Page {search.page} of {totalPages}</span>
-          {search.page < totalPages ? <Link to={href({ ...search, page: search.page + 1 })} className="underline">Next</Link> : <span />}
+          {shown.page > 1 ? <Link to={eventsHref({ ...shown, page: shown.page - 1 })} className="underline">Previous</Link> : <span />}
+          <span>Page {shown.page} of {totalPages}</span>
+          {shown.page < totalPages ? <Link to={eventsHref({ ...shown, page: shown.page + 1 })} className="underline">Next</Link> : <span />}
         </nav>
       )}
     </>
@@ -153,7 +155,7 @@ function EventCard({ event }: { event: EventResponse }) {
             </h2>
           </CardTitle>
           <CardDescription className="flex flex-col gap-1">
-            {event.category && <span className="font-mono text-foreground">{categoryLabels[event.category as Category]}</span>}
+            {event.category && <span className="font-mono text-foreground">{eventCategoryLabels[event.category]}</span>}
             <span className="line-clamp-2">{event.description}</span>
           </CardDescription>
         </CardHeader>

@@ -5,6 +5,19 @@ import type { components, operations } from './schema'
 
 export type EventResponse = components['schemas']['EventResponse']
 export type EventSearchQuery = NonNullable<operations['search_1']['parameters']['query']>
+export type EventCategory = NonNullable<EventResponse['category']>
+
+export const eventCategoryLabels: Record<EventCategory, string> = {
+  MUSIC: 'Music',
+  COMEDY: 'Comedy',
+  THEATRE: 'Theatre',
+  DANCE: 'Dance',
+  SPORTS: 'Sports',
+  CONFERENCE: 'Conference',
+  WORKSHOP: 'Workshop',
+  FAMILY: 'Family',
+  OTHER: 'Other',
+}
 
 // A published Event, for anyone. Keyed by the caller too, since its owner also sees drafts.
 export function useEvent(id: string | undefined) {
@@ -26,6 +39,7 @@ export function useEventSearch(query: EventSearchQuery) {
     queryKey: ['events', query],
     placeholderData: keepPreviousData,
     queryFn: async () => {
+      // A failure rejects with an ApiError, so data is there.
       const { data } = await api.GET('/api/v1/events', { params: { query } })
       return data!
     },

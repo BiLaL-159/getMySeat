@@ -1,13 +1,12 @@
-import type { EventSearchQuery } from '@/api/events.ts'
+import { eventCategoryLabels, type EventCategory, type EventSearchQuery } from '@/api/events.ts'
 
-export type Category = NonNullable<EventSearchQuery['category']>
 export type Sort = 'publishedAt' | 'title'
 
 // A search for published Events, as it lives in the /events URL. `page` counts from 1.
 export type EventSearch = {
   q?: string
   city?: string
-  category?: Category
+  category?: EventCategory
   from?: string
   to?: string
   sort: Sort
@@ -16,19 +15,10 @@ export type EventSearch = {
 
 export const defaultSearch: EventSearch = { sort: 'publishedAt', page: 1 }
 
-export const pageSize = 12
+const pageSize = 12
 
-export const categoryLabels: Record<Category, string> = {
-  MUSIC: 'Music',
-  COMEDY: 'Comedy',
-  THEATRE: 'Theatre',
-  DANCE: 'Dance',
-  SPORTS: 'Sports',
-  CONFERENCE: 'Conference',
-  WORKSHOP: 'Workshop',
-  FAMILY: 'Family',
-  OTHER: 'Other',
-}
+// Spring reads the page index as an int; past that it quietly falls back to the first page.
+const lastPage = 2 ** 31
 
 export const sortLabels: Record<Sort, string> = {
   publishedAt: 'Newest first',
@@ -37,8 +27,8 @@ export const sortLabels: Record<Sort, string> = {
 
 const sortDirections: Record<Sort, string> = { publishedAt: 'publishedAt,desc', title: 'title,asc' }
 
-function isCategory(value: string): value is Category {
-  return Object.hasOwn(categoryLabels, value)
+function isCategory(value: string): value is EventCategory {
+  return Object.hasOwn(eventCategoryLabels, value)
 }
 
 function isSort(value: string): value is Sort {
@@ -75,10 +65,11 @@ export function readSearch(params: URLSearchParams): EventSearch {
   // ISO dates compare as strings. The API refuses an end before the start.
   if (to && isIsoDate(to) && !(search.from && to < search.from)) search.to = to
   if (sort && isSort(sort)) search.sort = sort
-  if (Number.isInteger(page) && page >= 1) search.page = page
+  if (Number.isInteger(page) && page >= 1 && page <= lastPage) search.page = page
   return search
 }
 
+// The URL for a search, leaving out whatever is already the default.
 export function writeSearch(search: EventSearch): URLSearchParams {
   const params = new URLSearchParams()
   for (const key of ['q', 'city', 'category', 'from', 'to'] as const) {
@@ -90,6 +81,7 @@ export function writeSearch(search: EventSearch): URLSearchParams {
   return params
 }
 
+// The API counts pages from 0.
 export function toApiQuery({ sort, page, ...filters }: EventSearch): EventSearchQuery {
   return { ...filters, sort: [sortDirections[sort]], page: page - 1, size: pageSize }
 }

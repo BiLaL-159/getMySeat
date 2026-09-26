@@ -8,7 +8,7 @@ import { renderRoute } from '@/test/renderRoute.tsx'
 vi.mock('react-oidc-context', () => import('@/test/fakeAuth.ts'))
 
 // Answers GET /api/v1/events from `search`, recording each request's query.
-const api = vi.hoisted(() => ({ search: (() => new Response()) as (url: URL) => Response, queries: [] as URLSearchParams[] }))
+const api = vi.hoisted(() => ({ search: (() => new Response()) as (url: URL) => Response | Promise<Response>, queries: [] as URLSearchParams[] }))
 vi.mock('@/api/api.ts', async () => {
   const { createApiClient } = await import('@/api/client.ts')
   const { accessToken } = await import('@/test/fakeAuth.ts')
@@ -135,6 +135,23 @@ describe('events page', () => {
     expect(await screen.findByText('Page 2 of 3')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /previous/i })).toHaveAttribute('href', '/events?q=indie')
     expect(screen.getByRole('link', { name: /next/i })).toHaveAttribute('href', '/events?q=indie&page=3')
+  })
+
+  it('keeps the page it shows labelled while the next one loads', async () => {
+    const user = userEvent.setup()
+    api.search = () => page([indieNight], { totalPages: 3 })
+    renderRoute('/events')
+    await screen.findByText('Page 1 of 3')
+
+    let respond!: (response: Response) => void
+    api.search = () => new Promise((resolve) => (respond = resolve))
+    await user.click(screen.getByRole('link', { name: /next/i }))
+
+    expect(screen.getByRole('list', { name: /events/i })).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument()
+    respond(page([openMic], { number: 1, totalPages: 3 }))
+    expect(await screen.findByText('Page 2 of 3')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open mic/i })).toBeInTheDocument()
   })
 
   it('does not offer pages when there is only one', async () => {
