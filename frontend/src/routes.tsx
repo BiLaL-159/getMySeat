@@ -40,6 +40,10 @@ export const routes: RouteObject[] = [
         lazy: async () => ({ Component: (await import('./events/EventsPage.tsx')).default }),
       },
       {
+        path: '/events/:id',
+        lazy: async () => ({ Component: (await import('./events/EventPage.tsx')).default }),
+      },
+      {
         path: '/shows/:id',
         lazy: async () => ({ Component: (await import('./shows/ShowPage.tsx')).default }),
       },

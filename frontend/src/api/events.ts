@@ -45,3 +45,22 @@ export function useEventSearch(query: EventSearchQuery) {
     },
   })
 }
+
+export const showsPageSize = 20
+
+// One page (zero-based) of an Event's upcoming Shows, soonest first. Keyed by the caller too,
+// since its owner also sees drafts and past Shows. The last page stays up while the next loads.
+export function useEventShows(eventId: string, page: number) {
+  const auth = useAuth()
+  return useQuery({
+    queryKey: ['event-shows', eventId, page, auth.user?.profile.sub],
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      // A failure rejects with an ApiError, so data is there.
+      const { data } = await api.GET('/api/v1/events/{eventId}/shows', {
+        params: { path: { eventId }, query: { page, size: showsPageSize } },
+      })
+      return data!
+    },
+  })
+}
