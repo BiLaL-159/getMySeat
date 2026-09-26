@@ -118,6 +118,22 @@ class OpenApiDocsIT {
 		assertThat(operation.at("/responses/400/description").asString()).contains("Idempotency-Key");
 	}
 
+	@Test
+	void holdAndAvailabilityEndpointsDocumentTheirProblems() {
+		JsonNode paths = spec().path("paths");
+
+		assertThat(paths.at("/~1api~1v1~1shows~1{id}~1availability/get/responses/404/description").asString())
+			.isNotBlank();
+		JsonNode create = paths.at("/~1api~1v1~1shows~1{id}~1holds/post/responses");
+		assertThat(create.path("404").path("description").asString()).isNotBlank();
+		assertThat(create.path("409").path("description").asString()).contains("urn:getmyseat:problem:conflict");
+		for (String hold : List.of("/~1api~1v1~1holds~1{id}/get", "/~1api~1v1~1holds~1{id}~1release/post",
+				"/~1api~1v1~1shows~1{id}~1holds~1mine/get")) {
+			assertThat(paths.at(hold + "/responses/404/content").has("application/problem+json")).as(hold).isTrue();
+			assertThat(paths.at(hold + "/responses/409/content").has("application/problem+json")).as(hold).isTrue();
+		}
+	}
+
 	private JsonNode spec() {
 		return JsonMapper.builder()
 			.build()

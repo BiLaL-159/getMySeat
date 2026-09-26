@@ -36,3 +36,5 @@ Approving an Organizer Application grants the `ORGANIZER` realm role through the
 |---|---|---|
 | `HOLD_TIME` | `10m` | How long a Hold lasts before it expires. Any Spring duration, such as `90s` |
 | `HOLD_CLEANUP_INTERVAL` | `30s` | The pause between runs of the job that expires Holds nobody reads and forgets `Idempotency-Key`s older than 24 hours. A Seat whose Hold has expired stays unavailable for at most this long |
+
+`docker compose` passes both through from your shell, so `HOLD_TIME=30s docker compose up -d backend` restarts the backend with 30-second Holds.

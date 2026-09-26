@@ -58,6 +58,9 @@ services:
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_BACKEND_CLIENT_ID: getmyseat-backend
       KEYCLOAK_BACKEND_CLIENT_SECRET: getmyseat-backend-dev-secret
+      # Shorten to watch Holds expire, e.g. `HOLD_TIME=30s docker compose up -d backend`.
+      HOLD_TIME: ${HOLD_TIME:-10m}
+      HOLD_CLEANUP_INTERVAL: ${HOLD_CLEANUP_INTERVAL:-30s}
     ports:
       - "8080:8080"
     depends_on:
@@ -79,6 +82,22 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+
+  # The k6 load test; run it with `docker compose run --rm k6` once the stack is up. Not started by `up`.
+  k6:
+    image: grafana/k6:2.3.0
+    profiles: ["loadtest"]
+    command: ["run", "/load-test/holds.js"]
+    working_dir: /load-test
+    environment:
+      BASE_URL: http://backend:8080
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_ISSUER_HOST: localhost:8180
+    volumes:
+      - ./load-test:/load-test
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres-data:
