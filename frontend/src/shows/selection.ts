@@ -13,6 +13,11 @@ export function ticketCount(selection: Selection) {
   return selection.seats.length + Object.values(selection.generalAdmission).reduce((sum, quantity) => sum + quantity, 0)
 }
 
+// Whether the selection has as many tickets as one Hold can take.
+export function isFull(selection: Selection) {
+  return ticketCount(selection) >= maxTickets
+}
+
 function availableSeatIds(sections: MapSection[]) {
   return new Set(
     sections.flatMap((section) =>
@@ -29,7 +34,7 @@ function placesLeft(sections: MapSection[], sectionId: string) {
 // A Seat picked, or let go. Only an available Seat can be picked, and not once the selection is full.
 export function toggleSeat(selection: Selection, seatId: string, sections: MapSection[]): Selection {
   if (selection.seats.includes(seatId)) return { ...selection, seats: selection.seats.filter((id) => id !== seatId) }
-  if (!availableSeatIds(sections).has(seatId) || ticketCount(selection) >= maxTickets) return selection
+  if (!availableSeatIds(sections).has(seatId) || isFull(selection)) return selection
   return { ...selection, seats: [...selection.seats, seatId] }
 }
 

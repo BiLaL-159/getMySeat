@@ -8,14 +8,14 @@ import type { Selection } from './selection.ts'
 type SeatLook = SeatState | 'selected'
 
 // How a Seat reads to a screen reader, and in the key.
-const seatStateNames: Record<SeatLook, string> = {
+const seatLookNames: Record<SeatLook, string> = {
   available: 'available',
   selected: 'selected',
   held: 'held by someone else',
   unknown: 'not known yet',
 }
 
-const seatStateClasses: Record<SeatLook, string> = {
+const seatLookClasses: Record<SeatLook, string> = {
   available: '[&>rect]:fill-lime [&>rect]:stroke-ink [&>text]:fill-primary-foreground',
   selected: '[&>rect]:fill-ink [&>rect]:stroke-ink [&>text]:fill-lime [&>text]:font-bold',
   held: '[&>rect]:fill-muted [&>rect]:stroke-border [&>text]:fill-muted-foreground',
@@ -44,7 +44,7 @@ function SeatMap({ sections, status, picking }: { sections: MapSection[]; status
       <h2 id={headingId} className="font-display text-2xl font-black uppercase">Seat map</h2>
       {status}
       <div className="rounded-md bg-ink py-2 text-center font-mono text-xs uppercase tracking-[0.3em] text-paper">Stage</div>
-      <Legend picking={!!picking} />
+      <Legend showSelected={!!picking} />
       {sections.map((section) =>
         section.kind === 'SEATED' ? (
           <SeatedSection key={section.id} name={section.name} rows={section.rows} picking={picking} />
@@ -116,18 +116,20 @@ function Seat({ seat, name, x, y, picking }: { seat: MapSeat; name: string; x: n
       toggle()
     }
   }
-  const role = picking
+  const seatProps = picking
     ? { role: 'checkbox', 'aria-checked': selected, 'aria-disabled': !pickable, onClick: toggle, onKeyDown }
     : { role: 'img' }
   return (
     <g
-      {...role}
-      aria-label={`${name}, ${seatStateNames[look]}`}
+      {...seatProps}
+      aria-label={`${name}, ${seatLookNames[look]}`}
       tabIndex={0}
       className={cn(
         'outline-none [&:focus-visible>rect]:stroke-violet [&:focus-visible>rect]:stroke-[3]',
         picking && pickable && 'cursor-pointer',
-        seatStateClasses[look],
+        // At the limit, a free Seat can't be picked, so it fades.
+        picking && !pickable && seat.state === 'available' && 'opacity-40',
+        seatLookClasses[look],
       )}
     >
       <rect x={x + (cell - seatSize) / 2} y={y + (cell - seatSize) / 2} width={seatSize} height={seatSize} rx={5} strokeWidth={1.3} />
@@ -179,7 +181,7 @@ function GeneralAdmissionSection({
             >
               −
             </Button>
-            <output role="status" className="min-w-8 text-lg font-bold">{quantity}</output>
+            <output role="status" aria-label={`${name} tickets`} className="min-w-8 text-lg font-bold">{quantity}</output>
             <Button
               variant="outline"
               size="icon-sm"
@@ -196,16 +198,16 @@ function GeneralAdmissionSection({
   )
 }
 
-function Legend({ picking }: { picking: boolean }) {
-  const looks: SeatLook[] = picking ? ['available', 'selected', 'held'] : ['available', 'held']
+function Legend({ showSelected }: { showSelected: boolean }) {
+  const looks: SeatLook[] = showSelected ? ['available', 'selected', 'held'] : ['available', 'held']
   return (
     <ul aria-label="Key" className="flex flex-wrap justify-center gap-4 font-mono text-xs text-muted-foreground">
       {looks.map((state) => (
         <li key={state} className="flex items-center gap-2">
-          <svg width={14} height={14} aria-hidden className={seatStateClasses[state]}>
+          <svg width={14} height={14} aria-hidden className={seatLookClasses[state]}>
             <rect x={1} y={1} width={12} height={12} rx={3} strokeWidth={1.3} />
           </svg>
-          <span className="first-letter:uppercase">{seatStateNames[state]}</span>
+          <span className="first-letter:uppercase">{seatLookNames[state]}</span>
         </li>
       ))}
     </ul>

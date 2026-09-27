@@ -16,6 +16,7 @@ import {
   pruneSelection,
   setGeneralAdmission,
   summarizeSelection,
+  isFull,
   ticketCount,
   toggleSeat,
   type Selection,
@@ -97,9 +98,9 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
 
   const [selection, setSelection] = useState(emptySelection)
   // Whatever someone else took since the last look drops out of the selection.
-  const [prunedFor, setPrunedFor] = useState(sections)
-  if (prunedFor !== sections) {
-    setPrunedFor(sections)
+  const [lastPrunedSections, setLastPrunedSections] = useState(sections)
+  if (lastPrunedSections !== sections) {
+    setLastPrunedSections(sections)
     setSelection(pruneSelection(selection, sections))
   }
 
@@ -123,7 +124,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const picking = onSale
     ? {
         selection,
-        full: ticketCount(selection) >= maxTickets,
+        full: isFull(selection),
         onToggleSeat: (seatId: string) => setSelection((picked) => toggleSeat(picked, seatId, sections)),
         onSetGeneralAdmission: (sectionId: string, quantity: number) =>
           setSelection((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
@@ -146,7 +147,6 @@ function SelectionSummary({ selection, sections, show }: { selection: Selection;
     [show.sections],
   )
   const { lines, totalPaise } = summarizeSelection(selection, sections, pricesPaise)
-  const count = ticketCount(selection)
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-4 rounded-md border p-4">
@@ -174,12 +174,11 @@ function SelectionSummary({ selection, sections, show }: { selection: Selection;
         <span>Total</span>
         <strong>{formatPrice(totalPaise)}</strong>
       </p>
-      {count >= maxTickets && (
-        <p role="status" className="font-mono text-sm text-destructive">
-          That&apos;s the limit of {maxTickets} tickets. Let one go to pick another.
-        </p>
-      )}
-      <Button disabled={count === 0} className="self-end">Hold</Button>
+      {/* Always there, so a screen reader hears the limit when it's reached. */}
+      <p role="status" className="font-mono text-sm text-destructive empty:hidden">
+        {isFull(selection) && `That's the limit of ${maxTickets} tickets. Let one go to pick another.`}
+      </p>
+      <Button disabled={ticketCount(selection) === 0} className="self-end">Hold</Button>
     </section>
   )
 }
