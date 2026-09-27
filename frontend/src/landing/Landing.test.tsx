@@ -78,7 +78,7 @@ describe('landing search', () => {
     await user.click(within(search()).getByRole('button', { name: /find seats/i }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/events'))
-    expect(router.state.location.search).toBe('?from=2026-09-30&to=2026-10-30')
+    expect(router.state.location.search).toBe('?from=2026-09-30&to=2026-10-29')
   })
 
   it('leaves out everything left empty, with "Any time" sending no dates', async () => {

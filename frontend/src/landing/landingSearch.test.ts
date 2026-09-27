@@ -16,8 +16,8 @@ describe('whenRange', () => {
     expect(whenRange('weekend', sunday)).toEqual({ from: '2026-10-04', to: '2026-10-04' })
   })
 
-  it('makes "Next 30 days" run from today, across months', () => {
-    expect(whenRange('30days', wednesday)).toEqual({ from: '2026-09-30', to: '2026-10-30' })
+  it('makes "Next 30 days" today and the 29 days after, across months', () => {
+    expect(whenRange('30days', wednesday)).toEqual({ from: '2026-09-30', to: '2026-10-29' })
   })
 
   it('sends no dates for "Any time"', () => {

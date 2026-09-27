@@ -33,7 +33,8 @@ export function whenRange(when: When, today: Date): { from?: string; to?: string
       return { from: isoDate(from), to: isoDate(plusDays(saturday, 1)) }
     }
     case '30days':
-      return { from: isoDate(today), to: isoDate(plusDays(today, 30)) }
+      // Both ends count, so today and the 29 days after it.
+      return { from: isoDate(today), to: isoDate(plusDays(today, 29)) }
     case 'any':
       return {}
   }
