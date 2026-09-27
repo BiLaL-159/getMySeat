@@ -3,6 +3,7 @@ import type { MapSection, SeatState } from './seatMap.ts'
 import {
   dropLost,
   emptySelection,
+  goneFrom,
   maxTickets,
   pruneSelection,
   setGeneralAdmission,
@@ -136,5 +137,23 @@ describe('dropLost', () => {
     const selection: Selection = { seats: [], generalAdmission: { floor: 4 } }
 
     expect(dropLost(selection, { unavailableSeats: [], unavailableSections: [{ sectionId: 'floor', available: 0 }] })).toEqual(emptySelection)
+  })
+})
+
+describe('goneFrom', () => {
+  it('says which Seats a prune dropped, and what is left where quantities came down', () => {
+    const before = { seats: ['a1', 'a2'], generalAdmission: { floor: 3 } }
+    const now = sections({ floor: 1, states: { a1: 'held' } })
+
+    expect(goneFrom(before, pruneSelection(before, now), now)).toEqual({
+      unavailableSeats: ['a1'],
+      unavailableSections: [{ sectionId: 'floor', available: 1 }],
+    })
+  })
+
+  it('finds nothing gone when the prune changed nothing', () => {
+    const before = { seats: ['a1'], generalAdmission: { floor: 3 } }
+
+    expect(goneFrom(before, before, sections())).toEqual({ unavailableSeats: [], unavailableSections: [] })
   })
 })
