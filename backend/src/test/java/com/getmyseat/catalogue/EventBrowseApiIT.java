@@ -8,8 +8,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -106,8 +108,9 @@ class EventBrowseApiIT {
 	}
 
 	@Test
-	void thePublicListCanOnlyBeSortedByTitleOrPublicationTime() {
+	void thePublicListCanOnlyBeSortedByTitlePublicationTimeOrNextShow() {
 		api.get("/api/v1/events?sort=title", null).expectStatus().isOk();
+		api.get("/api/v1/events?sort=nextShow", null).expectStatus().isOk();
 		EventApi.assertValidationProblem(api.get("/api/v1/events?sort=createdAt", null), "sort");
 	}
 
@@ -353,6 +356,74 @@ class EventBrowseApiIT {
 			.containsExactly(firstShow, secondShow);
 		assertThat(page.path("content").valueStream().map(card -> card.path("lowestPrice").path("amountPaise").asLong()))
 			.containsExactly(30_000L, 20_000L);
+	}
+
+	@Test
+	void sortedByNextShowTheSoonestComesFirstAcrossPagesAndEventsWithoutOneLast() {
+		String token = jwts.organizer().encode();
+		String venue = shows.approvedVenueIn("Shimla-" + tag, "Asia/Kolkata");
+		String noShows = api.publishedEvent(token, EventApi.event("None " + tag));
+		String latest = api.publishedEvent(token, EventApi.event("Latest " + tag));
+		shows.publishedShow(latest, token, venue, ShowApi.inDays(20));
+		String soonest = api.publishedEvent(token, EventApi.event("Soonest " + tag));
+		shows.publishedShow(soonest, token, venue, ShowApi.inDays(10));
+		shows.publishedShow(soonest, token, venue, ShowApi.inDays(30));
+		String middle = api.publishedEvent(token, EventApi.event("Middle " + tag));
+		shows.publishedShow(middle, token, venue, ShowApi.inDays(15));
+		shows.draftShow(middle, token, venue);
+
+		JsonNode firstPage = search("q=" + tag + "&sort=nextShow&size=2");
+		JsonNode secondPage = search("q=" + tag + "&sort=nextShow&size=2&page=1");
+
+		assertThat(ids(firstPage)).containsExactly(soonest, middle);
+		assertThat(ids(secondPage)).containsExactly(latest, noShows);
+		assertThat(firstPage.path("page").path("totalElements").asLong()).isEqualTo(4);
+	}
+
+	@Test
+	void sortedByNextShowOnlyTheShowsMatchingTheCityAndDatesCount() {
+		String token = jwts.organizer().encode();
+		String city = "Mangaluru-" + tag;
+		String inCity = shows.approvedVenueIn(city, "Asia/Kolkata");
+		String elsewhere = shows.approvedVenueIn("Udupi-" + tag, "Asia/Kolkata");
+		String touring = api.publishedEvent(token, EventApi.event("Touring " + tag));
+		shows.publishedShow(touring, token, elsewhere, ShowApi.inDays(5));
+		shows.publishedShow(touring, token, inCity, ShowApi.inDays(20));
+		String local = api.publishedEvent(token, EventApi.event("Local " + tag));
+		shows.publishedShow(local, token, inCity, ShowApi.inDays(10));
+		shows.publishedShow(local, token, inCity, ShowApi.inDays(25));
+		LocalDate fifteenDays = localDate(ShowApi.inDays(15), "Asia/Kolkata");
+
+		assertThat(ids(search("q=" + tag + "&sort=nextShow"))).containsExactly(touring, local);
+		assertThat(ids(search("city=" + city + "&sort=nextShow"))).containsExactly(local, touring);
+		assertThat(ids(search("q=" + tag + "&from=" + fifteenDays + "&sort=nextShow"))).containsExactly(touring, local);
+		assertThat(ids(search("city=" + city + "&from=" + fifteenDays + "&sort=nextShow"))).containsExactly(touring,
+				local);
+		assertThat(ids(search("q=" + tag + "&to=" + fifteenDays + "&sort=nextShow"))).containsExactly(touring, local);
+		assertThat(ids(search("q=" + tag + "&from=" + fifteenDays + "&to=" + fifteenDays.plusDays(6) + "&sort=nextShow")))
+			.containsExactly(touring);
+	}
+
+	@Test
+	void sortedByNextShowEventsOnAtTheSameTimeKeepAStableOrder() {
+		String token = jwts.organizer().encode();
+		String venue = shows.approvedVenueIn("Leh-" + tag, "Asia/Kolkata");
+		Instant sameTime = ShowApi.inDays(10);
+		String one = api.publishedEvent(token, EventApi.event("One " + tag));
+		shows.publishedShow(one, token, venue, sameTime);
+		String two = api.publishedEvent(token, EventApi.event("Two " + tag));
+		shows.publishedShow(two, token, venue, sameTime);
+		String three = api.publishedEvent(token, EventApi.event("Three " + tag));
+		shows.publishedShow(three, token, venue, sameTime);
+
+		List<String> paged = new ArrayList<>();
+		for (int page = 0; page < 3; page++) {
+			paged.addAll(ids(search("q=" + tag + "&sort=nextShow&size=1&page=" + page)));
+		}
+
+		assertThat(paged).containsExactlyElementsOf(ids(search("q=" + tag + "&sort=nextShow")));
+		// Lower-case hex strings sort as PostgreSQL sorts uuids.
+		assertThat(paged).containsExactlyElementsOf(Stream.of(one, two, three).sorted().toList());
 	}
 
 	@Test

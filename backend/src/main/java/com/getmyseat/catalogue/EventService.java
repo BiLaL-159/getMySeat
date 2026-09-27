@@ -84,7 +84,7 @@ class EventService {
 			throw new InvalidRequestException("to", "must not be before from");
 		}
 		Instant now = Instant.now();
-		Page<Event> page = this.events.findAll(EventRepository.published(filters, now), withTieBreaker(pageable));
+		Page<Event> page = this.events.search(filters, now, pageable);
 		Map<UUID, EventCards.Upcoming> upcoming = this.cards.upcoming(page.map(Event::id).getContent(), filters, now);
 		return page.map(event -> EventCard.of(event, upcoming.get(event.id())));
 	}

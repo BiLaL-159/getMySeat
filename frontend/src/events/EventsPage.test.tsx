@@ -157,6 +157,17 @@ describe('events page', () => {
     await vi.waitFor(() => expect(lastQuery()).toMatchObject({ q: 'indie', sort: 'title,asc' }))
   })
 
+  it('sorts soonest first', async () => {
+    const user = userEvent.setup()
+    const router = renderRoute('/events?q=indie')
+    await screen.findByRole('link', { name: /indie night/i })
+
+    await user.selectOptions(screen.getByRole('combobox', { name: /sort/i }), 'Soonest first')
+
+    expect(router.state.location.search).toBe('?q=indie&sort=nextShow')
+    await vi.waitFor(() => expect(lastQuery()).toMatchObject({ q: 'indie', sort: 'nextShow,asc' }))
+  })
+
   it('pages through the results, keeping the filters', async () => {
     const user = userEvent.setup()
     api.search = (url) => page([indieNight], { number: Number(url.searchParams.get('page')), totalPages: 3 })

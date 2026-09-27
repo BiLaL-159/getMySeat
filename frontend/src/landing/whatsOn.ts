@@ -1,4 +1,5 @@
 import type { EventCard, EventCategory, EventSearchQuery } from '@/api/events.ts'
+import { sortDirections } from '@/events/search.ts'
 import { isoDate, plusDays } from './landingSearch.ts'
 
 // An Event with a next Show whose start and Venue time zone are known, as every browse result
@@ -21,8 +22,9 @@ function dateAt(instant: Date, timeZone: string) {
 
 // The API takes dates at each Venue, and a Venue's today can be the visitor's yesterday or
 // tomorrow, so this asks for all three and isOnTonight keeps the ones that are today there.
+// Soonest first, tonight's come before tomorrow's, so the first page has all of them.
 export function tonightQuery(city: string, today: Date): EventSearchQuery {
-  return { city, from: isoDate(plusDays(today, -1)), to: isoDate(plusDays(today, 1)), size: 20 }
+  return { city, from: isoDate(plusDays(today, -1)), to: isoDate(plusDays(today, 1)), sort: [sortDirections.nextShow], size: 20 }
 }
 
 // Whether an Event's next Show is on today at its Venue. The next Show is the soonest one
@@ -34,11 +36,7 @@ export function isOnTonight({ nextShow }: ScheduledEvent, now: Date) {
 // Events with a Show still to come. The API only gives Shows yet to start, so asking from the
 // visitor's yesterday keeps a Show later today at a Venue whose date is behind the visitor's.
 export function guideQuery(tab: GuideTab, today: Date): EventSearchQuery {
-  return { ...(tab === 'ALL' ? {} : { category: tab }), from: isoDate(plusDays(today, -1)), size: 12 }
-}
-
-export function soonestFirst(cards: ScheduledEvent[]) {
-  return cards.toSorted((a, b) => a.nextShow.startsAt.localeCompare(b.nextShow.startsAt))
+  return { ...(tab === 'ALL' ? {} : { category: tab }), from: isoDate(plusDays(today, -1)), sort: [sortDirections.nextShow], size: 12 }
 }
 
 // A remembered city counts only while it's still one of the cities; otherwise it's any city.

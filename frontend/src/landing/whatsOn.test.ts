@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guideQuery, isOnTonight, isScheduled, knownCity, type ScheduledEvent, soonestFirst, tonightCity, tonightQuery } from './whatsOn.ts'
+import { guideQuery, isOnTonight, isScheduled, knownCity, type ScheduledEvent, tonightCity, tonightQuery } from './whatsOn.ts'
 
 const card = (startsAt: string, timeZone = 'Asia/Kolkata'): ScheduledEvent => ({
   id: startsAt,
@@ -7,11 +7,12 @@ const card = (startsAt: string, timeZone = 'Asia/Kolkata'): ScheduledEvent => ({
 })
 
 describe('tonight', () => {
-  it('asks for the city from the day before to the day after, so every Venue time zone is covered', () => {
+  it('asks for the city from the day before to the day after, so every Venue time zone is covered, soonest first', () => {
     expect(tonightQuery('Pune', new Date(2026, 8, 30, 12, 0))).toEqual({
       city: 'Pune',
       from: '2026-09-29',
       to: '2026-10-01',
+      sort: ['nextShow,asc'],
       size: 20,
     })
   })
@@ -40,16 +41,10 @@ describe('tonight', () => {
 })
 
 describe('gig guide', () => {
-  it('asks for Events with a Show still to come, from yesterday so no Venue time zone misses today, of the category unless it is all of them', () => {
+  it('asks for Events with a Show still to come, soonest first, from yesterday so no Venue time zone misses today, of the category unless it is all of them', () => {
     const today = new Date(2026, 8, 30, 12, 0)
-    expect(guideQuery('ALL', today)).toEqual({ from: '2026-09-29', size: 12 })
-    expect(guideQuery('COMEDY', today)).toEqual({ category: 'COMEDY', from: '2026-09-29', size: 12 })
-  })
-
-  it('puts the soonest next Show first', () => {
-    const later = card('2026-10-09T15:30:00Z')
-    const sooner = card('2026-10-02T15:30:00Z')
-    expect(soonestFirst([later, sooner])).toEqual([sooner, later])
+    expect(guideQuery('ALL', today)).toEqual({ from: '2026-09-29', sort: ['nextShow,asc'], size: 12 })
+    expect(guideQuery('COMEDY', today)).toEqual({ category: 'COMEDY', from: '2026-09-29', sort: ['nextShow,asc'], size: 12 })
   })
 })
 

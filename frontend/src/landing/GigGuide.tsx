@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { eventCategoryLabels, useEventSearch } from '@/api/events.ts'
 import { categoryArt } from '@/events/categoryArt.ts'
 import { formatPrice, formatShowPart } from '@/shows/format.ts'
-import { guideQuery, isScheduled, soonestFirst, type GuideTab, type ScheduledEvent } from './whatsOn.ts'
+import { guideQuery, isScheduled, type GuideTab, type ScheduledEvent } from './whatsOn.ts'
 
 const tabs: [GuideTab, string][] = [['ALL', 'All'], ['MUSIC', 'Music'], ['COMEDY', 'Comedy'], ['THEATRE', 'Theatre'], ['SPORTS', 'Sport']]
 
@@ -11,7 +11,7 @@ const tabs: [GuideTab, string][] = [['ALL', 'All'], ['MUSIC', 'Music'], ['COMEDY
 export function GigGuide() {
   const [tab, setTab] = useState<GuideTab>('ALL')
   const results = useEventSearch(guideQuery(tab, new Date()))
-  const events = soonestFirst((results.data?.content ?? []).filter(isScheduled))
+  const events = (results.data?.content ?? []).filter(isScheduled)
 
   let gigs
   if (results.isError) gigs = <p className="empty">We couldn&apos;t load what&apos;s on. Try again in a little while.</p>

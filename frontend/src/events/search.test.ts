@@ -82,4 +82,8 @@ describe('toApiQuery', () => {
   it('asks for the most recently published first by default, sending no empty filters', () => {
     expect(toApiQuery(defaultSearch)).toEqual({ sort: ['publishedAt,desc'], page: 0, size: 12 })
   })
+
+  it('asks for the soonest next Show first', () => {
+    expect(toApiQuery({ ...defaultSearch, sort: 'nextShow' })).toEqual({ sort: ['nextShow,asc'], page: 0, size: 12 })
+  })
 })
