@@ -1,15 +1,17 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
 import { ApiError } from '@/api/problem.ts'
-import { sectionKindLabels, useShow, type ShowDetail } from '@/api/shows.ts'
+import { sectionKindLabels, useShow, useShowAvailability, type ShowDetail } from '@/api/shows.ts'
 import MessageCard from '@/app/MessageCard.tsx'
 import { problemMessage } from '@/app/problemMessage.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { formatPrice, formatShowTime } from './format.ts'
+import SeatMap from './SeatMap.tsx'
+import { buildSeatMap } from './seatMap.ts'
 
-// A Show for anyone to see: where and when it happens, and what each Section costs.
+// A Show for anyone to see: where and when it happens, what each Section costs, and what's left.
 function ShowPage() {
   const { id } = useParams() as { id: string }
   const show = useShow(id)
@@ -69,8 +71,40 @@ function ShowDetails({ show }: { show: ShowDetail }) {
             </li>
           ))}
         </ul>
+        <ShowSeatMap show={show} started={started} />
       </CardContent>
     </Card>
+  )
+}
+
+// The Show's seat map, kept up to date while its tickets are on sale. A draft Show has no
+// inventory yet, so there's nothing to ask for.
+function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) {
+  const published = show.status === 'PUBLISHED'
+  const availability = useShowAvailability(show.id!, { enabled: published, live: !started })
+  const sections = useMemo(() => buildSeatMap(show.sections ?? [], availability.data), [show.sections, availability.data])
+
+  let status
+  if (!published) {
+    status = <p className="font-mono text-sm text-muted-foreground">Availability shows here once the Show is published.</p>
+  } else if (availability.isError) {
+    status = (
+      <p role="alert" className="text-destructive">
+        {availability.data ? "We couldn't refresh what's left, so this may be out of date." : "We couldn't load what's left."}{' '}
+        {problemMessage(availability.error)}{' '}
+        <Button variant="link" className="h-auto p-0" onClick={() => void availability.refetch()}>Try again</Button>
+      </p>
+    )
+  } else if (availability.isPending) {
+    status = <p className="font-mono text-sm text-muted-foreground">Checking what&apos;s left…</p>
+  } else if (started) {
+    status = <p className="font-mono text-sm text-muted-foreground">Tickets are no longer on sale.</p>
+  }
+
+  return (
+    <div className="mt-8">
+      <SeatMap sections={sections} status={status} />
+    </div>
   )
 }
 
