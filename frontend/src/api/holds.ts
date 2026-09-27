@@ -14,7 +14,7 @@ export type Hold = components['schemas']['HoldResponse'] & { endsAt: number }
 const myHoldKey = (showId: string, subject?: string) => ['my-hold', showId, ...(subject ? [subject] : [])]
 
 // The API's answer, timed by its Date header. `expiresAt` is always there on a Hold.
-function timed(hold: components['schemas']['HoldResponse'], response: Response): Hold {
+function withLocalExpiry(hold: components['schemas']['HoldResponse'], response: Response): Hold {
   return { ...hold, endsAt: localExpiry(hold.expiresAt!, response.headers.get('Date'), Date.now()) }
 }
 
@@ -23,7 +23,7 @@ async function fetchMyHold(showId: string) {
   try {
     // A failure rejects with an ApiError, so data is there.
     const { data, response } = await api.GET('/api/v1/shows/{id}/holds/mine', { params: { path: { id: showId } } })
-    return timed(data!, response)
+    return withLocalExpiry(data!, response)
   } catch (error) {
     if (error instanceof ApiError && error.problem.kind === 'not-found') return null
     throw error
@@ -52,7 +52,7 @@ export function useCreateHold(showId: string) {
         params: { path: { id: showId }, header: { 'Idempotency-Key': key } },
         body: request,
       })
-      return timed(data!, response)
+      return withLocalExpiry(data!, response)
     },
     retry: shouldRetryHold,
     retryDelay: (failures) => 250 * 2 ** failures,
@@ -61,27 +61,32 @@ export function useCreateHold(showId: string) {
   })
 }
 
-// Releases a Hold early: 'released', or 'already-ended' when it had expired or ended some other way
-// first. The API says both that and "other Holds got in the way, try again" with a 409, so the
-// Customer's Hold for the Show settles which: still there and active, the release just didn't happen.
+// How releasing a Hold went: released, or it had already ended (expired, or replaced) first.
+export type Release = 'released' | 'already-ended'
+
+// Releases a Hold early. The API answers both "not active any more" and "other Holds got in the way,
+// try again" with a 409, so the Customer's Hold for the Show settles which: this Hold still active
+// means the release just didn't happen; anything else is what they hold now, if anything.
 export function useReleaseHold(showId: string) {
   const auth = useAuth()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (holdId: string): Promise<'released' | 'already-ended'> => {
+    mutationFn: async (holdId: string): Promise<Release> => {
+      const key = myHoldKey(showId, auth.user?.profile.sub)
       try {
         await api.POST('/api/v1/holds/{id}/release', { params: { path: { id: holdId } } })
+        queryClient.setQueryData(key, null)
         return 'released'
       } catch (error) {
         if (!(error instanceof ApiError && error.problem.kind === 'conflict')) throw error
-        if ((await fetchMyHold(showId))?.id === holdId) throw error
+        const current = await fetchMyHold(showId)
+        if (current?.id === holdId) throw error
+        queryClient.setQueryData(key, current)
         return 'already-ended'
       }
     },
-    onSuccess: () => {
-      queryClient.setQueryData(myHoldKey(showId, auth.user?.profile.sub), null)
-      return queryClient.invalidateQueries({ queryKey: showAvailabilityKey(showId) })
-    },
+    // Not waited for, so the Hold shows how it ended straight away.
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: showAvailabilityKey(showId) }),
   })
 }
 

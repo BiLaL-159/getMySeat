@@ -99,6 +99,8 @@ function hold(overrides: Record<string, unknown> = {}) {
 const problemResponse = (type = 'conflict', extra: object = {}) =>
   Response.json({ type: `urn:getmyseat:problem:${type}`, status: 409, ...extra }, { status: 409 })
 
+const notFoundResponse = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+
 const availabilityRequests = () => api.requests.filter((request) => new URL(request.url).pathname === availabilityPath)
 
 beforeEach(() => {
@@ -830,7 +832,7 @@ describe('ending a Hold', () => {
     const asked = availabilityRequests().length
     const looked = myHoldRequests().length
     // Reading the Hold past its expiry expires it on the API, which gives its Seats back.
-    api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+    api.responses[myHoldPath] = () => notFoundResponse()
     api.responses[availabilityPath] = () => Response.json(availability({ a1: true }))
     await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
 
@@ -855,7 +857,7 @@ describe('ending a Hold', () => {
   it('releases the Hold, shows it as released, and asks what is left', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.responses[releasePath] = () => {
-      api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+      api.responses[myHoldPath] = () => notFoundResponse()
       api.responses[availabilityPath] = () => Response.json(availability({ a1: true }))
       return Response.json(hold({ status: 'RELEASED' }))
     }
@@ -877,7 +879,7 @@ describe('ending a Hold', () => {
   it('shows a Hold that had already ended as ended, not as an error, when releasing it is a 409', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.responses[releasePath] = () => {
-      api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+      api.responses[myHoldPath] = () => notFoundResponse()
       return problemResponse()
     }
     renderRoute('/shows/show-1')
@@ -899,6 +901,56 @@ describe('ending a Hold', () => {
     expect(await within(panel()).findByRole('alert')).toHaveTextContent(/couldn.t release/i)
     expect(within(panel()).getByRole('timer')).toBeInTheDocument()
     expect(within(panel()).getByRole('button', { name: 'Release' })).toBeEnabled()
+  })
+
+  it('shows a newer Hold, not an ended one, when a 409 finds another Hold already made', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[releasePath] = () => {
+      // Another tab replaced this Hold with one of Balcony B1.
+      api.responses[myHoldPath] = () =>
+        Response.json(
+          hold({ id: 'hold-2', items: [{ kind: 'SEAT', sectionId: 's-2', seatId: 'b1', rowLabel: 'B', seatNumber: 1, quantity: 1, pricePaise: 149950 }], totalPaise: 149950 }),
+          apiDate('2099-10-03T13:00:00Z'),
+        )
+      return problemResponse()
+    }
+    renderRoute('/shows/show-1')
+
+    await user.click(await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('button', { name: 'Release' }))
+
+    expect(await screen.findByRole('checkbox', { name: 'Balcony, row B, seat 1, in my Hold' })).toBeInTheDocument()
+    expect(within(panel()).getByRole('timer')).toBeInTheDocument()
+    expect(within(panel()).getByText(/total/i).parentElement).toHaveTextContent('₹1,499.50')
+  })
+
+  it('does not carry a failed release over to the next Hold', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[releasePath] = () => problemResponse()
+    api.responses[holdsPath] = () => Response.json(hold({ id: 'hold-2' }), { status: 201, ...apiDate('2099-10-03T13:00:00Z') })
+    renderRoute('/shows/show-1')
+
+    await user.click(await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('button', { name: 'Release' }))
+    await within(panel()).findByRole('alert')
+    await user.click(screen.getByRole('checkbox', { name: /row B, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    expect(await within(panel()).findByText(/replaced your earlier one/i)).toBeInTheDocument()
+    expect(within(panel()).queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps showing the Hold while its release settles', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    let answerAvailability!: (response: Response) => void
+    api.responses[releasePath] = () => {
+      api.responses[availabilityPath] = () => new Promise<Response>((resolve) => (answerAvailability = resolve))
+      return Response.json(hold({ status: 'RELEASED' }))
+    }
+    renderRoute('/shows/show-1')
+
+    await user.click(await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('button', { name: 'Release' }))
+
+    expect(await within(panel()).findByRole('status')).toHaveTextContent(/released/i)
+    answerAvailability(Response.json(availability({ a1: true })))
   })
 
   it('says a new Hold replaces the current one, and then that it did', async () => {
@@ -925,7 +977,7 @@ describe('ending a Hold', () => {
 
   it('does not say a Hold will be replaced when there is none', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+    api.responses[myHoldPath] = () => notFoundResponse()
     renderRoute('/shows/show-1')
 
     await user.click(await screen.findByRole('checkbox', { name: /row B, seat 1, available/ }))

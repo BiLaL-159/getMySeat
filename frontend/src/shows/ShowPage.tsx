@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
-import { useCreateHold, useHoldExpired, useMyHold, useReleaseHold, type Hold } from '@/api/holds.ts'
+import { useCreateHold, useHoldExpired, useMyHold, useReleaseHold, type Hold, type Release } from '@/api/holds.ts'
 import { ApiError, isRace, type Lost } from '@/api/problem.ts'
 import { sectionKindLabels, useShow, useShowAvailability, type ShowDetail } from '@/api/shows.ts'
 import MessageCard from '@/app/MessageCard.tsx'
@@ -136,14 +136,15 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const session = useSession()
   const location = useLocation()
   const createHold = useCreateHold(show.id!)
+  const releaseHold = useReleaseHold(show.id!)
   const [attemptKeys] = useState(() => createAttemptKeys())
   // What the last Hold attempt lost to someone else, until the next attempt, with when availability
   // was last answered at the time.
   const [lost, setLost] = useState<{ gone: Lost; seenAt: number }>()
   // The last attempt brought back, under its key, a Hold that had already ended.
   const [ended, setEnded] = useState(false)
-  // The Hold that the last one made took the place of.
-  const [replaced, setReplaced] = useState<{ by: string }>()
+  // The Hold that took the place of the visitor's earlier one, when the last attempt made one.
+  const [replacedBy, setReplacedBy] = useState<string>()
   const lostSeats = useMemo(() => {
     // A lost Seat that a newer answer says is free again can be picked again.
     const newer = lost?.seenAt !== availability.dataUpdatedAt
@@ -182,7 +183,8 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
           }
           setSelection((picked) => withoutHeld(picked, request))
           setEndedHold(undefined)
-          setReplaced(previous && previous !== made.id ? { by: made.id! } : undefined)
+          setReplacedBy(previous && previous !== made.id ? made.id : undefined)
+          releaseHold.reset()
         },
         onError: (error) => {
           if (!(error instanceof ApiError)) return
@@ -198,7 +200,6 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
     )
   }
 
-  const releaseHold = useReleaseHold(show.id!)
   const holdExpired = useHoldExpired(show.id!)
   const onRelease = (releasing: Hold) =>
     releaseHold.mutate(releasing.id!, { onSuccess: (how) => setEndedHold({ hold: releasing, how }) })
@@ -268,9 +269,9 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
         <HoldPanel
           hold={hold}
           show={show}
-          replaced={replaced?.by === hold.id}
+          replaced={replacedBy === hold.id}
           releasing={releaseHold.isPending}
-          releaseError={releaseHold.isError ? releaseHold.error : undefined}
+          releaseError={releaseHold.isError && releaseHold.variables === hold.id ? releaseHold.error : undefined}
           onRelease={() => onRelease(hold)}
           onExpired={() => onExpired(hold)}
         />
@@ -333,6 +334,7 @@ function SelectionSummary({
 }) {
   const headingId = useId()
   const replaceNoteId = useId()
+  const willReplace = replacing && ticketCount(selection) > 0
   const pricesPaise = useMemo(
     () => Object.fromEntries((show.sections ?? []).map((section) => [section.id!, section.price?.amountPaise ?? 0])),
     [show.sections],
@@ -370,13 +372,13 @@ function SelectionSummary({
         {isFull(selection) && `That's the limit of ${maxTickets} tickets. Let one go to pick another.`}
       </p>
       {outcome}
-      {replacing && lines.length > 0 && (
+      {willReplace && (
         <p id={replaceNoteId} className="font-mono text-sm">Holding these will replace your current Hold.</p>
       )}
       <Button
         disabled={ticketCount(selection) === 0 || holding}
         onClick={onHold}
-        aria-describedby={replacing && lines.length > 0 ? replaceNoteId : undefined}
+        aria-describedby={willReplace ? replaceNoteId : undefined}
         className="self-end"
       >
         {holding ? 'Holding…' : 'Hold'}
@@ -386,7 +388,7 @@ function SelectionSummary({
 }
 
 // How a Hold ended: its time ran out, the visitor released it, or it had already ended when they tried.
-type HoldEnding = 'expired' | 'released' | 'already-ended'
+type HoldEnding = 'expired' | Release
 
 const holdEndings: Record<HoldEnding, string> = {
   expired: 'This Hold has expired, so these tickets are no longer held for you.',
