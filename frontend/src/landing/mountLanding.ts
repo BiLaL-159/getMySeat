@@ -158,8 +158,8 @@ export function mountLanding(): () => void {
     $('tonightLabel').textContent = 'Tonight in ' + city
     $('tonightList').innerHTML = TONIGHT[city].map(([a, b]) => `<li><b>${a}</b> <span>${b}</span></li>`).join('')
   }
-  $('q-city').addEventListener('change', e => tonight((e.target as HTMLSelectElement).value), { signal })
-  $('search').addEventListener('submit', e => { e.preventDefault(); $('guide').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' }) }, { signal })
+  // The search form's cities come from the API; the stub strip only knows some of them.
+  $('q-city').addEventListener('change', e => { const city = (e.target as HTMLSelectElement).value; if (Object.hasOwn(TONIGHT, city)) tonight(city) }, { signal })
   tonight('Mumbai')
 
   /* ---------- Seat map: a curved house around a lit stage ---------- */

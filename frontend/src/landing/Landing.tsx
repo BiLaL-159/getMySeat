@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { useSession } from '@/auth/session.ts'
 import { mountLanding } from './mountLanding.ts'
+import { SearchForm } from './SearchForm.tsx'
 import './landing.css'
 
 function Landing() {
@@ -41,18 +42,7 @@ function Landing() {
               <h1>Be in<span className="l2">the room.</span></h1>
               <div className="hero-row">
                 <p>Pick your exact seat, see the stage from it, and book the whole group side by side.</p>
-                <form className="stub" id="search" role="search">
-                  <label htmlFor="q-city"><span className="label">City</span>
-                    <select id="q-city"><option>Mumbai</option><option>Bengaluru</option><option>Delhi</option><option>Pune</option></select>
-                  </label>
-                  <label htmlFor="q-what"><span className="label">Who or what</span>
-                    <input id="q-what" type="text" placeholder="An artist, a comic, a team" autoComplete="off" />
-                  </label>
-                  <label htmlFor="q-when"><span className="label">When</span>
-                    <select id="q-when"><option>This weekend</option><option>Next 30 days</option><option>Any time</option></select>
-                  </label>
-                  <button type="submit">Find seats</button>
-                </form>
+                <SearchForm />
               </div>
             </div>
           </div>

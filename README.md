@@ -290,12 +290,12 @@ The API types in `frontend/src/api/schema.d.ts` are generated from the running b
 cd frontend && npm run gen:api   # reads http://localhost:8080/v3/api-docs, or $API_DOCS_URL
 ```
 
-Unit tests run with Vitest. The Playwright smoke test signs in as `customer`, `organizer` and `platform-admin` against the compose stack and checks each one's nav; it starts the dev server itself, or reuses one on port 5173:
+Unit tests run with Vitest. The Playwright smoke tests run against the seeded compose stack: one signs in as `customer`, `organizer` and `platform-admin` and checks each one's nav, and one searches from the landing page through to a seeded Show and its prices. They start the dev server themselves, or reuse one on port 5173:
 
 ```bash
 cd frontend && npm test
 npx playwright install chromium   # once
-docker compose up -d --build --wait && npm run test:e2e
+docker compose up -d --build --wait && ../scripts/seed.sh && npm run test:e2e
 ```
 
 ### Tests
