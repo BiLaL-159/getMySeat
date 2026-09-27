@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
 import { useCreateHold, useMyHold, type Hold } from '@/api/holds.ts'
@@ -11,11 +11,13 @@ import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { formatPrice, formatShowTime } from './format.ts'
 import { createAttemptKeys, describeLoss, holdRequest, withoutHeld } from './holding.ts'
+import { forgetKeptSelection, keepSelection, keptSelection } from './keptSelection.ts'
 import SeatMap from './SeatMap.tsx'
 import { buildSeatMap, type MapSection } from './seatMap.ts'
 import {
   dropLost,
   emptySelection,
+  goneFrom,
   maxTickets,
   pruneSelection,
   setGeneralAdmission,
@@ -103,12 +105,26 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const hold = myHold.data?.status === 'ACTIVE' ? myHold.data : undefined
   const myHoldSeats = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
 
-  const [selection, setSelection] = useState(emptySelection)
-  // Whatever someone else took since the last look drops out of the selection.
-  const [lastPrunedSections, setLastPrunedSections] = useState(sections)
-  if (lastPrunedSections !== sections) {
+  // A selection kept while the visitor went to sign in comes back once, and is checked against the
+  // first availability to arrive. The note says so, and what went meanwhile, until the visitor moves on.
+  const [kept] = useState(() => keptSelection(show.id!))
+  useEffect(() => {
+    if (kept) forgetKeptSelection()
+  }, [kept])
+  const [selection, setSelection] = useState(kept ?? emptySelection)
+  const [keptNote, setKeptNote] = useState<{ gone?: Lost } | undefined>(kept && {})
+  // Whatever someone else took since the last look drops out of the selection. A kept selection
+  // has never been checked, so it's checked against whatever availability comes first.
+  const [lastPrunedSections, setLastPrunedSections] = useState<MapSection[] | 'never'>(kept ? 'never' : sections)
+  if (lastPrunedSections !== sections && availability.data) {
     setLastPrunedSections(sections)
-    setSelection(pruneSelection(selection, sections))
+    const pruned = pruneSelection(selection, sections)
+    setSelection(pruned)
+    if (lastPrunedSections === 'never') setKeptNote({ gone: goneFrom(selection, pruned, sections) })
+  }
+  const changeSelection = (next: (picked: Selection) => Selection) => {
+    setKeptNote(undefined)
+    setSelection(next)
   }
 
   const session = useSession()
@@ -137,6 +153,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
 
   const onHold = () => {
     if (session.status !== 'signedIn') {
+      keepSelection(show.id!, selection)
       session.signIn(location.pathname + location.search)
       return
     }
@@ -144,6 +161,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
     const seenAt = availability.dataUpdatedAt
     setLost(undefined)
     setEnded(false)
+    setKeptNote(undefined)
     createHold.mutate(
       { request, key: attemptKeys.keyFor(request) },
       {
@@ -189,9 +207,9 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
         full: isFull(selection),
         lostSeats,
         lostSections,
-        onToggleSeat: (seatId: string) => setSelection((picked) => toggleSeat(picked, seatId, sections)),
+        onToggleSeat: (seatId: string) => changeSelection((picked) => toggleSeat(picked, seatId, sections)),
         onSetGeneralAdmission: (sectionId: string, quantity: number) =>
-          setSelection((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
+          changeSelection((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
       }
     : undefined
 
@@ -213,6 +231,8 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
     )
   } else if (createHold.isError) {
     holdOutcome = <p role="alert" className="text-destructive">We couldn&apos;t hold these tickets. {problemMessage(createHold.error)}</p>
+  } else if (keptNote) {
+    holdOutcome = <KeptNote gone={keptNote.gone} sections={sections} empty={ticketCount(selection) === 0} />
   }
 
   return (
@@ -232,6 +252,26 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
           onHold={onHold}
         />
       )}
+    </div>
+  )
+}
+
+// Tells a visitor back from signing in that their selection was kept, and what of it went while they were away.
+function KeptNote({ gone, sections, empty }: { gone: Lost | undefined; sections: MapSection[]; empty: boolean }) {
+  const lines = gone ? describeLoss(gone, sections) : []
+  if (lines.length === 0) {
+    return <p role="status" className="font-mono text-sm">We kept the tickets you picked. Hold them when you&apos;re ready.</p>
+  }
+  return (
+    <div role="alert" className="flex flex-col gap-1 text-destructive">
+      <p>
+        {empty
+          ? 'Everything you picked went while you were away, so there is nothing left to hold.'
+          : 'We kept the tickets you picked, but some went while you were away:'}
+      </p>
+      <ul className="list-inside list-disc font-mono text-sm">
+        {lines.map((line) => <li key={line}>{line}</li>)}
+      </ul>
     </div>
   )
 }

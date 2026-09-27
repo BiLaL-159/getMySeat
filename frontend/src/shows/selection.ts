@@ -66,6 +66,18 @@ export function pruneSelection(selection: Selection, sections: MapSection[]): Se
   return changed ? { seats, generalAdmission } : selection
 }
 
+// What a prune took out of the selection, in the shape of a Hold's losses: the Seats that dropped
+// out, and the places left in each General Admission Section whose quantity came down.
+export function goneFrom(before: Selection, after: Selection, sections: MapSection[]): Lost {
+  const kept = new Set(after.seats)
+  return {
+    unavailableSeats: before.seats.filter((id) => !kept.has(id)),
+    unavailableSections: Object.entries(before.generalAdmission)
+      .filter(([sectionId, quantity]) => (after.generalAdmission[sectionId] ?? 0) < quantity)
+      .map(([sectionId]) => ({ sectionId, available: placesLeft(sections, sectionId) })),
+  }
+}
+
 // The selection after a Hold failed on inventory that's gone: the lost Seats drop out, and each
 // General Admission shortfall comes down to what's left. Everything else stays, ready to try again.
 export function dropLost(selection: Selection, { unavailableSeats, unavailableSections }: Lost): Selection {

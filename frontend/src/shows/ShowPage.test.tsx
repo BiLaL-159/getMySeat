@@ -1,10 +1,11 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetSession } from '@/auth/session.ts'
 import { resetAuth, setAuth, signedIn, signedOut, signinRedirect } from '@/test/fakeAuth.ts'
 import { renderRoute } from '@/test/renderRoute.tsx'
+import { keepSelection, keptSelection } from './keptSelection.ts'
 
 vi.mock('react-oidc-context', () => import('@/test/fakeAuth.ts'))
 
@@ -102,6 +103,7 @@ const availabilityRequests = () => api.requests.filter((request) => new URL(requ
 
 beforeEach(() => {
   resetAuth()
+  sessionStorage.clear()
   api.requests = []
   api.responses = {
     [showPath]: () => Response.json(show()),
@@ -682,5 +684,104 @@ describe('holding tickets', () => {
     expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/shows/show-1' } })
     expect(holdRequests()).toHaveLength(0)
     expect(api.requests.some((request) => new URL(request.url).pathname === myHoldPath)).toBe(false)
+  })
+})
+
+describe('signing in to hold', () => {
+  const holdRequests = () => api.requests.filter((request) => request.method === 'POST' && new URL(request.url).pathname === holdsPath)
+  const summary = () => screen.getByRole('region', { name: /your selection/i })
+  // The picks come first; a note about what went may follow with a list of its own.
+  const summaryLines = () => within(within(summary()).getAllByRole('list')[0]).getAllByRole('listitem').map((line) => line.textContent)
+
+  // A signed-out visitor picks Balcony A1 and two Floor places, clicks "Hold", and comes back signed in.
+  async function signInToHold() {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+    await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/shows/show-1' } })
+
+    cleanup()
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+    return user
+  }
+
+  it('comes back to the selection, says it was kept, and holds it on one click', async () => {
+    api.responses[holdsPath] = () => Response.json(hold(), { status: 201 })
+    const user = await signInToHold()
+
+    expect(await screen.findByRole('checkbox', { name: /row A, seat 1, selected/ })).toBeChecked()
+    expect(summaryLines()).toEqual([
+      expect.stringMatching(/Floor.*General Admission × 2/),
+      expect.stringMatching(/Balcony.*Row A, seat 1/),
+    ])
+    expect(within(summary()).getByText(/kept the tickets you picked/i)).toBeInTheDocument()
+    expect(holdRequests()).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(await screen.findByRole('region', { name: /your hold/i })).toBeInTheDocument()
+    expect(holdRequests()).toHaveLength(1)
+    expect(await holdRequests()[0].json()).toEqual({ seats: ['a1'], generalAdmission: [{ sectionId: 's-1', quantity: 2 }] })
+  })
+
+  it('drops picks that went while the visitor was away, and says what went', async () => {
+    const user = userEvent.setup()
+    keepSelection('show-1', { seats: ['a1', 'b1'], generalAdmission: { 's-1': 3 } })
+    api.responses[availabilityPath] = () => Response.json(availability({ a1: false, floor: 1 }))
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+
+    const note = await within(await screen.findByRole('region', { name: /your selection/i })).findByText(/went while you were away/i)
+    expect(within(note.parentElement!).getAllByRole('listitem').map((line) => line.textContent)).toEqual([
+      'Floor: only 1 place left',
+      'Balcony, row A, seat 1',
+    ])
+    expect(summaryLines()).toEqual([
+      expect.stringMatching(/Floor.*General Admission × 1/),
+      expect.stringMatching(/Balcony.*Row B, seat 1/),
+    ])
+    expect(screen.getByRole('checkbox', { name: /row A, seat 1, held by someone else/ })).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await waitFor(() => expect(holdRequests()).toHaveLength(1))
+  })
+
+  it('says so when everything picked went while the visitor was away', async () => {
+    keepSelection('show-1', { seats: ['a1'], generalAdmission: {} })
+    api.responses[availabilityPath] = () => Response.json(availability({ a1: false }))
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+
+    expect(await screen.findByText(/everything you picked went while you were away/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hold' })).toBeDisabled()
+  })
+
+  it('does not bring back a selection kept for another Show', async () => {
+    keepSelection('show-2', { seats: ['a1'], generalAdmission: {} })
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+
+    expect(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })).not.toBeChecked()
+    expect(screen.queryByText(/kept the tickets you picked/i)).not.toBeInTheDocument()
+  })
+
+  it('brings the kept selection back only once', async () => {
+    await signInToHold()
+    await screen.findByRole('checkbox', { name: /row A, seat 1, selected/ })
+    expect(keptSelection('show-1')).toBeUndefined()
+
+    cleanup()
+    renderRoute('/shows/show-1')
+    expect(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })).not.toBeChecked()
+  })
+
+  it('drops the note once the visitor changes the selection', async () => {
+    const user = await signInToHold()
+
+    await user.click(await screen.findByRole('checkbox', { name: /row B, seat 1, available/ }))
+    expect(screen.queryByText(/kept the tickets you picked/i)).not.toBeInTheDocument()
+    expect(summaryLines()).toHaveLength(3)
   })
 })
