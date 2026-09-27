@@ -5,6 +5,10 @@ import type { components } from './schema'
 
 export type ShowDetail = components['schemas']['ShowDetail']
 export type SectionDetail = components['schemas']['SectionDetail']
+export type ShowAvailability = components['schemas']['ShowAvailability']
+
+// How often a Show page asks what's left, until live updates arrive.
+export const availabilityRefreshMs = 15_000
 
 export const sectionKindLabels: Record<NonNullable<SectionDetail['kind']>, string> = {
   SEATED: 'Seated',
@@ -20,6 +24,21 @@ export function useShow(id: string) {
     queryFn: async () => {
       // A failure rejects with an ApiError, so data is there.
       const { data } = await api.GET('/api/v1/shows/{id}', { params: { path: { id } } })
+      return data!
+    },
+  })
+}
+
+// What's left to sell at a published Show, the same for everyone. While `live`, it's asked again
+// every so often; the last answer stays up meanwhile.
+export function useShowAvailability(id: string, { enabled, live }: { enabled: boolean; live: boolean }) {
+  return useQuery({
+    queryKey: ['show-availability', id],
+    enabled,
+    refetchInterval: live ? availabilityRefreshMs : false,
+    queryFn: async () => {
+      // A failure rejects with an ApiError, so data is there.
+      const { data } = await api.GET('/api/v1/shows/{id}/availability', { params: { path: { id } } })
       return data!
     },
   })
