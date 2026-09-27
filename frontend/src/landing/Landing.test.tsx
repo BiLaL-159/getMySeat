@@ -138,7 +138,7 @@ describe('tonight strip', () => {
 
   it("lists the first city's Events with a Show today at their Venue, each linking to its Event", async () => {
     api.events = (query) =>
-      query.get('city') === 'Bengaluru'
+      query.get('city') === 'Bengaluru' && query.get('sort') === 'nextShow,asc'
         ? page([event('jazz', 'Kiln Yard Jazz Sessions', tonight), event('tomorrow', 'Tughlaq', tomorrow)])
         : page([])
     renderRoute('/')
@@ -185,11 +185,11 @@ describe('gig guide', () => {
 
   it('lists upcoming Events soonest first, with where, when and from what price, each linking to its Event', async () => {
     api.events = (query) =>
-      query.get('city')
+      query.get('city') || query.get('sort') !== 'nextShow,asc'
         ? page([])
         : page([
-            event('later', 'Tughlaq', '2026-10-24T13:30:00Z', { category: 'THEATRE', lowestPrice: { amountPaise: 120000, currency: 'INR' } }),
             event('sooner', 'Kiln Yard Jazz Sessions', '2026-10-02T15:30:00Z'),
+            event('later', 'Tughlaq', '2026-10-24T13:30:00Z', { category: 'THEATRE', lowestPrice: { amountPaise: 120000, currency: 'INR' } }),
           ])
     renderRoute('/')
 

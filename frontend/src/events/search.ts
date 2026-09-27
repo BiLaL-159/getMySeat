@@ -1,6 +1,6 @@
 import { eventCategoryLabels, type EventCategory, type EventSearchQuery } from '@/api/events.ts'
 
-export type Sort = 'publishedAt' | 'title'
+export type Sort = 'publishedAt' | 'nextShow' | 'title'
 
 // A search for published Events, as it lives in the /events URL. `page` counts from 1.
 export type EventSearch = {
@@ -22,10 +22,11 @@ const lastPage = 2 ** 31
 
 export const sortLabels: Record<Sort, string> = {
   publishedAt: 'Newest first',
+  nextShow: 'Soonest first',
   title: 'Title, A to Z',
 }
 
-const sortDirections: Record<Sort, string> = { publishedAt: 'publishedAt,desc', title: 'title,asc' }
+const sortDirections: Record<Sort, string> = { publishedAt: 'publishedAt,desc', nextShow: 'nextShow,asc', title: 'title,asc' }
 
 function isCategory(value: string): value is EventCategory {
   return Object.hasOwn(eventCategoryLabels, value)

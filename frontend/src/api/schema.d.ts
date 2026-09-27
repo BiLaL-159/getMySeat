@@ -284,7 +284,7 @@ export interface paths {
         };
         /**
          * Search published Events, most recently published first
-         * @description Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone. Each Event comes with its next upcoming published Show and the lowest Section Price across its upcoming published Shows, both among the Shows matching city, from and to when given.
+         * @description Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone. Each Event comes with its next upcoming published Show and the lowest Section Price across its upcoming published Shows, both among the Shows matching city, from and to when given. Sort by publishedAt, title, or nextShow for when that next Show starts, soonest first, with Events that have none last.
          */
         get: operations["search_1"];
         put?: never;
