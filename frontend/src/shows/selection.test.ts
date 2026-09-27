@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MapSection, SeatState } from './seatMap.ts'
 import {
+  dropLost,
   emptySelection,
   maxTickets,
   pruneSelection,
@@ -118,5 +119,22 @@ describe('summarizeSelection', () => {
       { key: 'a3', section: 'Balcony', place: 'Row A, seat 3', pricePaise: 149950, amountPaise: 149950 },
     ])
     expect(summary.totalPaise).toBe(399900)
+  })
+})
+
+describe('dropLost', () => {
+  it('drops only the lost Seats and brings shortfalls down to what is left', () => {
+    const selection: Selection = { seats: ['a1', 'a2', 'a3'], generalAdmission: { floor: 4, pit: 2 } }
+
+    expect(dropLost(selection, { unavailableSeats: ['a2'], unavailableSections: [{ sectionId: 'floor', available: 1 }] })).toEqual({
+      seats: ['a1', 'a3'],
+      generalAdmission: { floor: 1, pit: 2 },
+    })
+  })
+
+  it('drops a General Admission Section with nothing left', () => {
+    const selection: Selection = { seats: [], generalAdmission: { floor: 4 } }
+
+    expect(dropLost(selection, { unavailableSeats: [], unavailableSections: [{ sectionId: 'floor', available: 0 }] })).toEqual(emptySelection)
   })
 })

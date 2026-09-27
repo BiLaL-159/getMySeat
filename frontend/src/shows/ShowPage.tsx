@@ -1,16 +1,20 @@
-import { useId, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { useId, useMemo, useState, type ReactNode } from 'react'
+import { Link, useLocation, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
-import { ApiError } from '@/api/problem.ts'
+import { useCreateHold, useMyHold, type Hold } from '@/api/holds.ts'
+import { ApiError, isRace, type Lost } from '@/api/problem.ts'
 import { sectionKindLabels, useShow, useShowAvailability, type ShowDetail } from '@/api/shows.ts'
 import MessageCard from '@/app/MessageCard.tsx'
 import { problemMessage } from '@/app/problemMessage.ts'
+import { useSession } from '@/auth/session.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { formatPrice, formatShowTime } from './format.ts'
+import { createAttemptKeys, describeLoss, holdRequest, withoutHeld } from './holding.ts'
 import SeatMap from './SeatMap.tsx'
 import { buildSeatMap, type MapSection } from './seatMap.ts'
 import {
+  dropLost,
   emptySelection,
   maxTickets,
   pruneSelection,
@@ -89,12 +93,15 @@ function ShowDetails({ show }: { show: ShowDetail }) {
 }
 
 // The Show's seat map, kept up to date while its tickets are on sale, when a visitor can pick
-// tickets on it. A draft Show has no inventory yet, so there's nothing to ask for.
+// tickets on it and hold them. A draft Show has no inventory yet, so there's nothing to ask for.
 function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) {
   const published = show.status === 'PUBLISHED'
   const onSale = published && !started
   const availability = useShowAvailability(show.id!, { enabled: published, live: !started })
   const sections = useMemo(() => buildSeatMap(show.sections ?? [], availability.data), [show.sections, availability.data])
+  const myHold = useMyHold(show.id!, { enabled: published })
+  const hold = myHold.data?.status === 'ACTIVE' ? myHold.data : undefined
+  const myHoldSeats = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
 
   const [selection, setSelection] = useState(emptySelection)
   // Whatever someone else took since the last look drops out of the selection.
@@ -102,6 +109,61 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   if (lastPrunedSections !== sections) {
     setLastPrunedSections(sections)
     setSelection(pruneSelection(selection, sections))
+  }
+
+  const session = useSession()
+  const location = useLocation()
+  const createHold = useCreateHold(show.id!)
+  const [attemptKeys] = useState(() => createAttemptKeys())
+  // What the last Hold attempt lost to someone else, until the next attempt, with when availability
+  // was last answered at the time.
+  const [lost, setLost] = useState<{ gone: Lost; seenAt: number }>()
+  // The last attempt brought back, under its key, a Hold that had already ended.
+  const [ended, setEnded] = useState(false)
+  const lostSeats = useMemo(() => {
+    // A lost Seat that a newer answer says is free again can be picked again.
+    const newer = lost?.seenAt !== availability.dataUpdatedAt
+    const free = new Set(
+      sections.flatMap((section) =>
+        section.kind === 'SEATED' ? section.rows.flatMap((row) => row.seats.filter((seat) => seat.state === 'available').map((seat) => seat.id)) : [],
+      ),
+    )
+    return new Set(lost?.gone.unavailableSeats.filter((id) => !(newer && free.has(id))))
+  }, [lost, sections, availability.dataUpdatedAt])
+  const lostSections = useMemo(
+    () => new Map(lost?.gone.unavailableSections.map(({ sectionId, available }) => [sectionId, available])),
+    [lost],
+  )
+
+  const onHold = () => {
+    if (session.status !== 'signedIn') {
+      session.signIn(location.pathname + location.search)
+      return
+    }
+    const request = holdRequest(selection)
+    const seenAt = availability.dataUpdatedAt
+    setLost(undefined)
+    setEnded(false)
+    createHold.mutate(
+      { request, key: attemptKeys.keyFor(request) },
+      {
+        onSuccess: (made) => {
+          attemptKeys.forget()
+          if (made.status === 'ACTIVE') setSelection((picked) => withoutHeld(picked, request))
+          else setEnded(true)
+        },
+        onError: (error) => {
+          if (!(error instanceof ApiError)) return
+          const { problem } = error
+          // That key went with other tickets, so the next attempt needs a new one.
+          if (problem.kind === 'idempotency-key-reused') attemptKeys.forget()
+          if (problem.kind !== 'inventory-unavailable' || isRace(problem)) return
+          const gone = { unavailableSeats: problem.unavailableSeats, unavailableSections: problem.unavailableSections }
+          setLost({ gone, seenAt })
+          setSelection((picked) => dropLost(picked, gone))
+        },
+      },
+    )
   }
 
   let status
@@ -125,22 +187,71 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
     ? {
         selection,
         full: isFull(selection),
+        lostSeats,
+        lostSections,
         onToggleSeat: (seatId: string) => setSelection((picked) => toggleSeat(picked, seatId, sections)),
         onSetGeneralAdmission: (sectionId: string, quantity: number) =>
           setSelection((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
       }
     : undefined
 
+  let holdOutcome
+  if (lost) {
+    holdOutcome = (
+      <div role="alert" className="flex flex-col gap-1 text-destructive">
+        <p>Someone else got there first, so nothing was held. We kept the rest of your selection, ready to try again.</p>
+        <ul className="list-inside list-disc font-mono text-sm">
+          {describeLoss(lost.gone, sections).map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      </div>
+    )
+  } else if (ended) {
+    holdOutcome = (
+      <p role="alert" className="text-destructive">
+        Your earlier Hold on these tickets has already ended, so nothing is held now. Hold them again to try once more.
+      </p>
+    )
+  } else if (createHold.isError) {
+    holdOutcome = <p role="alert" className="text-destructive">We couldn&apos;t hold these tickets. {problemMessage(createHold.error)}</p>
+  }
+
   return (
     <div className="mt-8 flex flex-col gap-8">
-      <SeatMap sections={sections} status={status} picking={picking} />
-      {onSale && <SelectionSummary selection={selection} sections={sections} show={show} />}
+      <SeatMap sections={sections} status={status} myHoldSeats={myHoldSeats} picking={picking} />
+      {myHold.isError && (
+        <p role="alert" className="text-destructive">We couldn&apos;t check for a Hold of yours. {problemMessage(myHold.error)}</p>
+      )}
+      {hold && <HoldPanel hold={hold} show={show} />}
+      {onSale && (
+        <SelectionSummary
+          selection={selection}
+          sections={sections}
+          show={show}
+          holding={createHold.isPending}
+          outcome={holdOutcome}
+          onHold={onHold}
+        />
+      )}
     </div>
   )
 }
 
 // What the visitor has picked, what it costs, and the way on to holding it.
-function SelectionSummary({ selection, sections, show }: { selection: Selection; sections: MapSection[]; show: ShowDetail }) {
+function SelectionSummary({
+  selection,
+  sections,
+  show,
+  holding,
+  outcome,
+  onHold,
+}: {
+  selection: Selection
+  sections: MapSection[]
+  show: ShowDetail
+  holding: boolean
+  outcome: ReactNode
+  onHold: () => void
+}) {
   const headingId = useId()
   const pricesPaise = useMemo(
     () => Object.fromEntries((show.sections ?? []).map((section) => [section.id!, section.price?.amountPaise ?? 0])),
@@ -178,7 +289,52 @@ function SelectionSummary({ selection, sections, show }: { selection: Selection;
       <p role="status" className="font-mono text-sm text-destructive empty:hidden">
         {isFull(selection) && `That's the limit of ${maxTickets} tickets. Let one go to pick another.`}
       </p>
-      <Button disabled={ticketCount(selection) === 0} className="self-end">Hold</Button>
+      {outcome}
+      <Button disabled={ticketCount(selection) === 0 || holding} onClick={onHold} className="self-end">
+        {holding ? 'Holding…' : 'Hold'}
+      </Button>
+    </section>
+  )
+}
+
+// The visitor's Hold: what's in it, what it costs, and (once payments arrive) the way to pay.
+function HoldPanel({ hold, show }: { hold: Hold; show: ShowDetail }) {
+  const headingId = useId()
+  const payNoteId = useId()
+  const sectionNames = useMemo(
+    () => new Map((show.sections ?? []).map((section) => [section.id, section.name])),
+    [show.sections],
+  )
+
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-4 rounded-md border-2 border-violet p-4">
+      <h2 id={headingId} className="font-display text-2xl font-black uppercase">Your Hold</h2>
+      <ul className="divide-y">
+        {hold.items?.map((item) => {
+          const quantity = item.quantity ?? 1
+          const pricePaise = item.pricePaise ?? 0
+          return (
+            <li key={item.seatId ?? item.sectionId} className="flex items-baseline justify-between gap-4 py-2">
+              <span>
+                <span className="font-semibold">{sectionNames.get(item.sectionId)}</span>{' '}
+                <span>{item.kind === 'SEAT' ? `Row ${item.rowLabel}, seat ${item.seatNumber}` : `General Admission × ${quantity}`}</span>
+              </span>
+              <span className="font-mono">
+                {quantity > 1 && <span className="text-sm text-muted-foreground">{formatPrice(pricePaise)} each · </span>}
+                {formatPrice(pricePaise * quantity)}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="flex items-baseline justify-between font-mono text-lg">
+        <span>Total</span>
+        <strong>{formatPrice(hold.totalPaise ?? 0)}</strong>
+      </p>
+      <div className="flex items-center justify-end gap-3">
+        <span id={payNoteId} className="font-mono text-sm text-muted-foreground">Payments arrive soon</span>
+        <Button disabled aria-describedby={payNoteId}>Pay</Button>
+      </div>
     </section>
   )
 }

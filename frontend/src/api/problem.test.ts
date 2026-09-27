@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ApiError, isRetryable, problemFrom } from './problem.ts'
+import { ApiError, isRetryable, problemFrom, shouldRetryHold, type Problem } from './problem.ts'
 
 const problem = (name: string, status: number, extra: object = {}) => ({
   type: `urn:getmyseat:problem:${name}`,
@@ -33,12 +33,33 @@ describe('problemFrom', () => {
     ['forbidden', 403],
     ['upstream-unavailable', 503],
     ['unauthorized', 401],
+    ['idempotency-key-reused', 409],
   ] as const)('maps a %s problem by its type', (kind, status) => {
     expect(problemFrom(status, problem(kind, status))).toEqual({ kind, status, detail: `The ${kind} detail.` })
   })
 
-  it.each(['inventory-unavailable', 'idempotency-key-reused'])('treats %s as a conflict', (type) => {
-    expect(problemFrom(409, problem(type, 409))).toMatchObject({ kind: 'conflict', status: 409 })
+
+  it('keeps the Seats and Sections an inventory-unavailable problem names', () => {
+    const body = problem('inventory-unavailable', 409, {
+      unavailableSeats: ['a1', 'b3'],
+      unavailableSections: [{ sectionId: 'floor', available: 2 }],
+    })
+
+    expect(problemFrom(409, body)).toEqual({
+      kind: 'inventory-unavailable',
+      status: 409,
+      detail: 'The inventory-unavailable detail.',
+      unavailableSeats: ['a1', 'b3'],
+      unavailableSections: [{ sectionId: 'floor', available: 2 }],
+    })
+  })
+
+  it('reads an inventory-unavailable problem that names nothing as empty lists', () => {
+    expect(problemFrom(409, problem('inventory-unavailable', 409, { unavailableSections: [{ sectionId: 7 }] }))).toMatchObject({
+      kind: 'inventory-unavailable',
+      unavailableSeats: [],
+      unavailableSections: [],
+    })
   })
 
   it('falls back for a type it does not know, keeping the status and detail', () => {
@@ -69,5 +90,33 @@ describe('isRetryable', () => {
 
   it('does not retry an error that did not come from the API', () => {
     expect(isRetryable(new Error('bug'))).toBe(false)
+  })
+})
+
+describe('shouldRetryHold', () => {
+  const error = (problem: Problem) => new ApiError(problem)
+
+  it.each([
+    ['a plain conflict', { kind: 'conflict', status: 409 }],
+    ['a network failure', { kind: 'unreachable' }],
+    ['a server failure', { kind: 'unknown', status: 500 }],
+    ['a race that names nothing lost', { kind: 'inventory-unavailable', status: 409, unavailableSeats: [], unavailableSections: [] }],
+  ] satisfies [string, Problem][])('retries %s', (_, problem) => {
+    expect(shouldRetryHold(0, error(problem))).toBe(true)
+  })
+
+  it.each([
+    ['lost Seats', { kind: 'inventory-unavailable', status: 409, unavailableSeats: ['a1'], unavailableSections: [] }],
+    ['a General Admission shortfall', { kind: 'inventory-unavailable', status: 409, unavailableSeats: [], unavailableSections: [{ sectionId: 'floor', available: 1 }] }],
+    ['a bad request', { kind: 'validation', status: 400, fieldErrors: {} }],
+    ['a missing Show', { kind: 'not-found', status: 404 }],
+    ['a key used for other tickets', { kind: 'idempotency-key-reused', status: 409 }],
+  ] satisfies [string, Problem][])('does not retry %s', (_, problem) => {
+    expect(shouldRetryHold(0, error(problem))).toBe(false)
+  })
+
+  it('gives up after three retries', () => {
+    expect(shouldRetryHold(2, error({ kind: 'conflict', status: 409 }))).toBe(true)
+    expect(shouldRetryHold(3, error({ kind: 'conflict', status: 409 }))).toBe(false)
   })
 })

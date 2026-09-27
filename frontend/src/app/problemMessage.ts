@@ -13,6 +13,8 @@ export function problemMessage(error: unknown) {
       return 'You’re not allowed to do that.'
     case 'not-found':
       return 'We couldn’t find what you were looking for.'
+    case 'inventory-unavailable':
+      return 'Some of what you picked has just gone. Pick again.'
     case 'conflict':
       return 'Something changed in the meantime. Reload and try again.'
     case 'validation':

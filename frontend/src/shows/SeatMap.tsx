@@ -2,15 +2,19 @@ import { useId, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { MapRow, MapSeat, MapSection, SeatState } from './seatMap.ts'
+import { placesLeftNote } from './holding.ts'
 import type { Selection } from './selection.ts'
 
-// How a Seat looks: what availability says, unless the visitor has picked it.
-type SeatLook = SeatState | 'selected'
+// How a Seat looks: what availability says, unless the visitor has picked it, holds it, or just
+// lost it to someone else while trying to hold it.
+type SeatLook = SeatState | 'selected' | 'mine' | 'lost'
 
 // How a Seat reads to a screen reader, and in the key.
 const seatLookNames: Record<SeatLook, string> = {
   available: 'available',
   selected: 'selected',
+  mine: 'in my Hold',
+  lost: 'taken before you could hold it',
   held: 'held by someone else',
   unknown: 'not known yet',
 }
@@ -18,36 +22,61 @@ const seatLookNames: Record<SeatLook, string> = {
 const seatLookClasses: Record<SeatLook, string> = {
   available: '[&>rect]:fill-lime [&>rect]:stroke-ink [&>text]:fill-primary-foreground',
   selected: '[&>rect]:fill-ink [&>rect]:stroke-ink [&>text]:fill-lime [&>text]:font-bold',
+  mine: '[&>rect]:fill-violet [&>rect]:stroke-violet [&>text]:fill-paper [&>text]:font-bold',
+  lost: '[&>rect]:fill-muted [&>rect]:stroke-destructive [&>rect]:stroke-2 [&>text]:fill-destructive [&>text]:font-bold',
   held: '[&>rect]:fill-muted [&>rect]:stroke-border [&>text]:fill-muted-foreground',
   unknown: '[&>rect]:fill-none [&>rect]:stroke-border [&>rect]:[stroke-dasharray:3_2] [&>text]:fill-muted-foreground',
 }
+
+const noSeats: ReadonlySet<string> = new Set()
 
 // One Seat's square, and the gap to the next.
 const cell = 28
 const seatSize = 22
 
 // What a seat map needs to let a visitor pick tickets: what they've picked so far, whether that's
-// as many as they can take, and what to do when they pick.
+// as many as they can take, what they just lost to someone else (Seats, and the places left in each
+// General Admission Section that fell short), and what to do when they pick.
 export type Picking = {
   selection: Selection
   full: boolean
+  lostSeats: ReadonlySet<string>
+  lostSections: ReadonlyMap<string, number>
   onToggleSeat: (seatId: string) => void
   onSetGeneralAdmission: (sectionId: string, quantity: number) => void
 }
 
 // A seat map: a stage, then each Section in the order given. `status` says what's known about
-// availability, above the Sections. Read-only, unless `picking` is given.
-function SeatMap({ sections, status, picking }: { sections: MapSection[]; status?: ReactNode; picking?: Picking }) {
+// availability, above the Sections. `myHoldSeats` are the Seats in the visitor's Hold. Read-only, unless
+// `picking` is given.
+function SeatMap({
+  sections,
+  status,
+  myHoldSeats = noSeats,
+  picking,
+}: {
+  sections: MapSection[]
+  status?: ReactNode
+  myHoldSeats?: ReadonlySet<string>
+  picking?: Picking
+}) {
+  const looks: SeatLook[] = [
+    'available',
+    ...(picking ? (['selected'] as const) : []),
+    ...(myHoldSeats.size > 0 ? (['mine'] as const) : []),
+    ...(picking?.lostSeats.size ? (['lost'] as const) : []),
+    'held',
+  ]
   const headingId = useId()
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-6">
       <h2 id={headingId} className="font-display text-2xl font-black uppercase">Seat map</h2>
       {status}
       <div className="rounded-md bg-ink py-2 text-center font-mono text-xs uppercase tracking-[0.3em] text-paper">Stage</div>
-      <Legend showSelected={!!picking} />
+      <Legend looks={looks} />
       {sections.map((section) =>
         section.kind === 'SEATED' ? (
-          <SeatedSection key={section.id} name={section.name} rows={section.rows} picking={picking} />
+          <SeatedSection key={section.id} name={section.name} rows={section.rows} myHoldSeats={myHoldSeats} picking={picking} />
         ) : (
           <GeneralAdmissionSection key={section.id} {...section} picking={picking} />
         ),
@@ -66,7 +95,17 @@ function SectionFrame({ name, children }: { name: string; children: ReactNode })
   )
 }
 
-function SeatedSection({ name, rows, picking }: { name: string; rows: MapRow[]; picking: Picking | undefined }) {
+function SeatedSection({
+  name,
+  rows,
+  myHoldSeats,
+  picking,
+}: {
+  name: string
+  rows: MapRow[]
+  myHoldSeats: ReadonlySet<string>
+  picking: Picking | undefined
+}) {
   if (rows.length === 0) {
     return (
       <SectionFrame name={name}>
@@ -89,7 +128,15 @@ function SeatedSection({ name, rows, picking }: { name: string; rows: MapRow[]; 
               <g key={row.label}>
                 <RowLabel x={left - cell / 2} y={y} label={row.label} />
                 {row.seats.map((seat, s) => (
-                  <Seat key={seat.id} seat={seat} name={`${name}, row ${row.label}, seat ${seat.number}`} x={left + s * cell} y={y} picking={picking} />
+                  <Seat
+                    key={seat.id}
+                    seat={seat}
+                    name={`${name}, row ${row.label}, seat ${seat.number}`}
+                    x={left + s * cell}
+                    y={y}
+                    mine={myHoldSeats.has(seat.id)}
+                    picking={picking}
+                  />
                 ))}
                 <RowLabel x={left + row.seats.length * cell + cell / 2} y={y} label={row.label} />
               </g>
@@ -102,11 +149,27 @@ function SeatedSection({ name, rows, picking }: { name: string; rows: MapRow[]; 
 }
 
 // One Seat's square at (x, y). While picking, it's a checkbox: an available Seat can be picked
-// until the selection is full, and a picked one let go.
-function Seat({ seat, name, x, y, picking }: { seat: MapSeat; name: string; x: number; y: number; picking: Picking | undefined }) {
+// until the selection is full, and a picked one let go. A Seat already in the visitor's Hold, or
+// just lost to someone else, can't be picked.
+function Seat({
+  seat,
+  name,
+  x,
+  y,
+  mine,
+  picking,
+}: {
+  seat: MapSeat
+  name: string
+  x: number
+  y: number
+  mine: boolean
+  picking: Picking | undefined
+}) {
   const selected = !!picking?.selection.seats.includes(seat.id)
-  const look: SeatLook = selected ? 'selected' : seat.state
-  const pickable = selected || (seat.state === 'available' && !picking?.full)
+  const lost = !!picking?.lostSeats.has(seat.id)
+  const look: SeatLook = selected ? 'selected' : mine ? 'mine' : lost ? 'lost' : seat.state
+  const pickable = selected || (look === 'available' && !picking?.full)
   const toggle = () => {
     if (pickable) picking?.onToggleSeat(seat.id)
   }
@@ -128,7 +191,7 @@ function Seat({ seat, name, x, y, picking }: { seat: MapSeat; name: string; x: n
         'outline-none [&:focus-visible>rect]:stroke-violet [&:focus-visible>rect]:stroke-[3]',
         picking && pickable && 'cursor-pointer',
         // At the limit, a free Seat can't be picked, so it fades.
-        picking && !pickable && seat.state === 'available' && 'opacity-40',
+        picking && !pickable && look === 'available' && 'opacity-40',
         seatLookClasses[look],
       )}
     >
@@ -162,6 +225,7 @@ function GeneralAdmissionSection({
   picking: Picking | undefined
 }) {
   const quantity = picking?.selection.generalAdmission[id] ?? 0
+  const lostLeft = picking?.lostSections.get(id)
   return (
     <SectionFrame name={name}>
       <div className="flex w-full max-w-md flex-col items-center gap-3 rounded-md border border-dashed px-4 py-6 text-center font-mono">
@@ -170,6 +234,9 @@ function GeneralAdmissionSection({
           : available === 0
             ? <strong className="text-destructive">Sold out</strong>
             : `${available} of ${capacity} places left`}
+        {lostLeft != null && (
+          <p className="text-sm font-bold text-destructive">Someone else got there first: {placesLeftNote(lostLeft)}</p>
+        )}
         {picking && !!available && (
           <div className="flex items-center gap-3">
             <Button
@@ -198,8 +265,7 @@ function GeneralAdmissionSection({
   )
 }
 
-function Legend({ showSelected }: { showSelected: boolean }) {
-  const looks: SeatLook[] = showSelected ? ['available', 'selected', 'held'] : ['available', 'held']
+function Legend({ looks }: { looks: SeatLook[] }) {
   return (
     <ul aria-label="Key" className="flex flex-wrap justify-center gap-4 font-mono text-xs text-muted-foreground">
       {looks.map((state) => (
