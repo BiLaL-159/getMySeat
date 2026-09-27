@@ -2,7 +2,7 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetSession } from '@/auth/session.ts'
+import { expireSession, resetSession } from '@/auth/session.ts'
 import { resetAuth, setAuth, signedIn, signedOut, signinRedirect } from '@/test/fakeAuth.ts'
 import { renderRoute } from '@/test/renderRoute.tsx'
 import { holdSessionRestore } from '@/test/sessionRestore.ts'
@@ -811,6 +811,18 @@ describe('signing in to hold', () => {
     expect(holdRequests()).toHaveLength(0)
   })
 
+  it('sends a visitor whose session has expired to sign in', async () => {
+    const user = userEvent.setup()
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+
+    await act(() => expireSession())
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/shows/show-1' } })
+    expect(holdRequests()).toHaveLength(0)
+  })
+
   it('says a kept selection has not been checked yet while availability loads', async () => {
     keepSelection('show-1', { seats: ['a1'], generalAdmission: {} })
     api.responses[availabilityPath] = () => new Promise(() => {})
@@ -838,7 +850,7 @@ describe('signing in to hold', () => {
     expect(summaryLines()).toHaveLength(2)
 
     fail = false
-    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await user.click(screen.getByRole('button', { name: 'Check again' }))
     expect(await screen.findByText(/some went while you were away/i)).toBeInTheDocument()
     expect(screen.queryByText(/couldn.t check what.s still left/i)).not.toBeInTheDocument()
     expect(summaryLines()).toEqual([expect.stringMatching(/Balcony.*Row B, seat 1/)])
