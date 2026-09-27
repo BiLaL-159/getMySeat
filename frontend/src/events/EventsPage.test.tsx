@@ -28,7 +28,15 @@ vi.mock('@/api/api.ts', async () => {
   }
 })
 
-const indieNight = { id: 'event-1', title: 'Indie Night', category: 'MUSIC', description: 'Three bands, one long night.', status: 'PUBLISHED' }
+const indieNight = {
+  id: 'event-1',
+  title: 'Indie Night',
+  category: 'MUSIC',
+  description: 'Three bands, one long night.',
+  status: 'PUBLISHED',
+  nextShow: { id: 'show-1', startsAt: '2026-10-03T14:00:00Z', venueName: 'Harbourline Arena', city: 'Mumbai', timeZone: 'Asia/Kolkata' },
+  lowestPrice: { amountPaise: 45000, currency: 'INR' },
+}
 const openMic = { id: 'event-2', title: 'Open Mic', category: 'COMEDY', description: 'Five minutes each.', status: 'PUBLISHED' }
 
 function page(content: unknown[], { number = 0, totalPages = 1 } = {}) {
@@ -64,6 +72,33 @@ describe('events page', () => {
       expect.stringMatching(/Open Mic.*Comedy.*Five minutes each\./),
     ])
     expect(within(cards[0]).getByRole('link', { name: /indie night/i })).toHaveAttribute('href', '/events/event-1')
+  })
+
+  it('shows when and where an Event is next on, and its lowest price', async () => {
+    renderRoute('/events')
+
+    const card = (await screen.findByRole('link', { name: /indie night/i })).closest('li')!
+    expect(card).toHaveTextContent('Sat, 3 Oct, 2026, 7:30 pm IST')
+    expect(card).toHaveTextContent('Harbourline Arena, Mumbai')
+    expect(card).toHaveTextContent('from ₹450')
+    expect(within(card).getByText(/7:30 pm/).closest('time')).toHaveAttribute('dateTime', '2026-10-03T14:00:00Z')
+  })
+
+  it('says when an Event has no upcoming Show, with no price', async () => {
+    renderRoute('/events')
+
+    const card = (await screen.findByRole('link', { name: /open mic/i })).closest('li')!
+    expect(card).toHaveTextContent('No upcoming Shows')
+    expect(card).not.toHaveTextContent(/from ₹/)
+  })
+
+  it('pictures each Event with artwork for its category', async () => {
+    renderRoute('/events')
+
+    const indie = (await screen.findByRole('link', { name: /indie night/i })).closest('li')!
+    const mic = screen.getByRole('link', { name: /open mic/i }).closest('li')!
+    expect(within(indie).getByRole('presentation')).toHaveAttribute('src', '/assets-v9/p-monsoon.webp')
+    expect(within(mic).getByRole('presentation')).toHaveAttribute('src', '/assets-v9/p-openmic.webp')
   })
 
   it('searches with the filters in the URL, and fills the form with them', async () => {

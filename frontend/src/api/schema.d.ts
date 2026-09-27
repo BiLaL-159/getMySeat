@@ -284,7 +284,7 @@ export interface paths {
         };
         /**
          * Search published Events, most recently published first
-         * @description Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone.
+         * @description Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone. Each Event comes with its next upcoming published Show and the lowest Section Price across its upcoming published Shows, both among the Shows matching city, from and to when given.
          */
         get: operations["search_1"];
         put?: never;
@@ -956,8 +956,32 @@ export interface components {
             email?: string;
             roles?: ("CUSTOMER" | "ORGANIZER" | "ADMIN")[];
         };
-        PagedModelEventResponse: {
-            content?: components["schemas"]["EventResponse"][];
+        EventCard: {
+            /** Format: uuid */
+            id?: string;
+            title?: string;
+            description?: string;
+            /** @enum {string} */
+            category?: "MUSIC" | "COMEDY" | "THEATRE" | "DANCE" | "SPORTS" | "CONFERENCE" | "WORKSHOP" | "FAMILY" | "OTHER";
+            language?: string;
+            /** @enum {string} */
+            status?: "DRAFT" | "PUBLISHED";
+            /** Format: date-time */
+            publishedAt?: string;
+            nextShow?: components["schemas"]["NextShow"];
+            lowestPrice?: components["schemas"]["Price"];
+        };
+        NextShow: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: date-time */
+            startsAt?: string;
+            venueName?: string;
+            city?: string;
+            timeZone?: string;
+        };
+        PagedModelEventCard: {
+            content?: components["schemas"]["EventCard"][];
             page?: components["schemas"]["PageMetadata"];
         };
         PagedModelShowSummary: {
@@ -974,6 +998,10 @@ export interface components {
             /** @enum {string} */
             status?: "DRAFT" | "PUBLISHED";
             venue?: components["schemas"]["ShowVenue"];
+        };
+        PagedModelEventResponse: {
+            content?: components["schemas"]["EventResponse"][];
+            page?: components["schemas"]["PageMetadata"];
         };
         PagedModelVenueResponse: {
             content?: components["schemas"]["VenueResponse"][];
@@ -1509,7 +1537,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["PagedModelEventResponse"];
+                    "*/*": components["schemas"]["PagedModelEventCard"];
                 };
             };
         };

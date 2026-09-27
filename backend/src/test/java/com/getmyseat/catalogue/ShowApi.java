@@ -127,6 +127,17 @@ public final class ShowApi {
 		return show;
 	}
 
+	/**
+	 * A published Show of the given published Event, starting at the given time, with a price for each Section of
+	 * the Venue in layout order.
+	 */
+	String publishedShowPriced(String event, String token, String venue, Instant startsAt, long... amountsPaise) {
+		String show = id(schedule(event, token, show(venue, startsAt)).expectStatus().isCreated());
+		setPrices(show, token, prices(sections(venue), amountsPaise)).expectStatus().isOk();
+		publish(show, token).expectStatus().isOk();
+		return show;
+	}
+
 	/** A published Show of the given published Event that has already started, which takes a few seconds. */
 	String pastShow(String event, String token, String venue) throws InterruptedException {
 		Instant soon = Instant.now().plus(3, ChronoUnit.SECONDS);

@@ -4,6 +4,8 @@ import { api } from './api.ts'
 import type { components, operations } from './schema'
 
 export type EventResponse = components['schemas']['EventResponse']
+// A search result: the Event with where and when it's next on, and its lowest price.
+export type EventCard = components['schemas']['EventCard']
 export type EventSearchQuery = NonNullable<operations['search_1']['parameters']['query']>
 export type EventCategory = NonNullable<EventResponse['category']>
 

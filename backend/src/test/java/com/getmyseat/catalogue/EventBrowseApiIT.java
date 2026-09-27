@@ -57,7 +57,7 @@ class EventBrowseApiIT {
 		JsonNode event = page.path("content").path(0);
 		assertThat(event.path("title").asString()).isEqualTo("Jazz Night " + tag);
 		assertThat(event.path("status").asString()).isEqualTo("PUBLISHED");
-		assertThat(event.path("ownerSubject").isNull()).isTrue();
+		assertThat(event.has("ownerSubject")).isFalse();
 	}
 
 	@Test
@@ -273,6 +273,86 @@ class EventBrowseApiIT {
 
 		assertThat(ids(page)).containsExactly(event);
 		assertThat(page.path("page").path("totalElements").asLong()).isEqualTo(1);
+	}
+
+	@Test
+	void aResultCarriesItsNextUpcomingPublishedShowAndItsLowestPrice() {
+		String token = jwts.organizer().encode();
+		String event = api.publishedEvent(token, EventApi.event("Card " + tag));
+		String nearVenue = shows.approvedVenueIn("Mysuru-" + tag, "Asia/Kolkata");
+		String farVenue = shows.approvedVenueIn("Nagpur-" + tag, "Asia/Kolkata");
+		Instant next = ShowApi.inDays(10);
+		String nextShow = shows.publishedShowPriced(event, token, nearVenue, next, 120_000, 80_000);
+		shows.publishedShowPriced(event, token, farVenue, ShowApi.inDays(20), 150_000, 45_000);
+		String draft = ShowApi.id(shows.schedule(event, token, ShowApi.show(nearVenue, ShowApi.inDays(5)))
+			.expectStatus()
+			.isCreated());
+		shows.setPrices(draft, token, ShowApi.prices(shows.sections(nearVenue), 100, 100)).expectStatus().isOk();
+
+		JsonNode card = search("q=" + tag).path("content").path(0);
+
+		JsonNode show = card.path("nextShow");
+		assertThat(show.path("id").asString()).isEqualTo(nextShow);
+		assertThat(Instant.parse(show.path("startsAt").asString())).isEqualTo(next);
+		assertThat(show.path("venueName").asString()).isEqualTo("Town Hall");
+		assertThat(show.path("city").asString()).isEqualTo("Mysuru-" + tag);
+		assertThat(show.path("timeZone").asString()).isEqualTo("Asia/Kolkata");
+		assertThat(card.path("lowestPrice").path("amountPaise").asLong()).isEqualTo(45_000);
+		assertThat(card.path("lowestPrice").path("currency").asString()).isEqualTo("INR");
+	}
+
+	@Test
+	void aResultWithoutAnUpcomingPublishedShowHasNoNextShowOrPrice() throws InterruptedException {
+		String token = jwts.organizer().encode();
+		String venue = shows.approvedVenueIn("Surat-" + tag, "Asia/Kolkata");
+		String event = api.publishedEvent(token, EventApi.event("Bare " + tag));
+		shows.pastShow(event, token, venue);
+		shows.draftShow(event, token, venue);
+
+		JsonNode card = search("q=" + tag).path("content").path(0);
+
+		assertThat(card.path("id").asString()).isEqualTo(event);
+		assertThat(card.path("nextShow").isNull()).isTrue();
+		assertThat(card.path("lowestPrice").isNull()).isTrue();
+	}
+
+	@Test
+	void withACityOrDatesTheNextShowAndLowestPriceAreAmongTheMatchingShows() {
+		String token = jwts.organizer().encode();
+		String city = "Indore-" + tag;
+		String inCity = shows.approvedVenueIn(city, "Asia/Kolkata");
+		String elsewhere = shows.approvedVenueIn("Bhopal-" + tag, "Asia/Kolkata");
+		String event = api.publishedEvent(token, EventApi.event("Tour " + tag));
+		shows.publishedShowPriced(event, token, elsewhere, ShowApi.inDays(5), 10_000, 10_000);
+		String cityShow = shows.publishedShowPriced(event, token, inCity, ShowApi.inDays(10), 90_000, 70_000);
+		Instant later = ShowApi.inDays(20);
+		String laterCityShow = shows.publishedShowPriced(event, token, inCity, later, 60_000, 65_000);
+		LocalDate laterDate = localDate(later, "Asia/Kolkata");
+
+		JsonNode byCity = search("city=" + city).path("content").path(0);
+		JsonNode byDate = search("q=" + tag + "&from=" + laterDate + "&to=" + laterDate).path("content").path(0);
+
+		assertThat(byCity.path("nextShow").path("id").asString()).isEqualTo(cityShow);
+		assertThat(byCity.path("lowestPrice").path("amountPaise").asLong()).isEqualTo(60_000);
+		assertThat(byDate.path("nextShow").path("id").asString()).isEqualTo(laterCityShow);
+		assertThat(byDate.path("lowestPrice").path("amountPaise").asLong()).isEqualTo(60_000);
+	}
+
+	@Test
+	void eachResultOnAPageCarriesItsOwnNextShow() {
+		String token = jwts.organizer().encode();
+		String venue = shows.approvedVenueIn("Ooty-" + tag, "Asia/Kolkata");
+		String first = api.publishedEvent(token, EventApi.event("First " + tag));
+		String firstShow = shows.publishedShowPriced(first, token, venue, ShowApi.inDays(10), 30_000, 40_000);
+		String second = api.publishedEvent(token, EventApi.event("Second " + tag));
+		String secondShow = shows.publishedShowPriced(second, token, venue, ShowApi.inDays(12), 50_000, 20_000);
+
+		JsonNode page = search("q=" + tag + "&sort=title");
+
+		assertThat(page.path("content").valueStream().map(card -> card.path("nextShow").path("id").asString()))
+			.containsExactly(firstShow, secondShow);
+		assertThat(page.path("content").valueStream().map(card -> card.path("lowestPrice").path("amountPaise").asLong()))
+			.containsExactly(30_000L, 20_000L);
 	}
 
 	@Test

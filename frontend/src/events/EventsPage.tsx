@@ -1,12 +1,14 @@
 import type { FormEvent, ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { eventCategoryLabels, useEventSearch, type EventResponse } from '@/api/events.ts'
+import { eventCategoryLabels, useEventSearch, type EventCard } from '@/api/events.ts'
 import MessageCard from '@/app/MessageCard.tsx'
 import { problemMessage } from '@/app/problemMessage.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { cn } from '@/lib/utils.ts'
+import { formatPrice, formatShowTime } from '@/shows/format.ts'
+import { categoryArt } from './categoryArt.ts'
 import { readSearch, sortLabels, toApiQuery, writeSearch, type EventSearch, type Sort } from './search.ts'
 
 const selectClass =
@@ -131,7 +133,7 @@ function Results({ search, results }: { search: EventSearch; results: ReturnType
   return (
     <>
       <ul aria-label="Events" aria-busy={results.isPlaceholderData} className={cn('grid gap-4', results.isPlaceholderData && 'opacity-60')}>
-        {events.map((event) => <EventCard key={event.id} event={event} />)}
+        {events.map((event) => <ResultCard key={event.id} event={event} />)}
       </ul>
       {totalPages > 1 && (
         <nav aria-label="Pages" className="flex items-center justify-between gap-4 font-mono text-sm">
@@ -144,11 +146,15 @@ function Results({ search, results }: { search: EventSearch; results: ReturnType
   )
 }
 
-function EventCard({ event }: { event: EventResponse }) {
+function ResultCard({ event }: { event: EventCard }) {
+  const { nextShow, lowestPrice } = event
   return (
     <li>
-      <Card className="gap-2">
-        <CardHeader>
+      <Card className="flex-row gap-4 px-6">
+        {event.category && (
+          <img src={categoryArt[event.category]} alt="" className="w-20 shrink-0 self-start rounded-sm object-cover aspect-[2/3]" />
+        )}
+        <CardHeader className="flex-1 px-0">
           <CardTitle>
             <h2 className="font-display text-2xl font-black uppercase leading-none">
               <Link to={`/events/${event.id}`} className="hover:underline">{event.title}</Link>
@@ -156,6 +162,18 @@ function EventCard({ event }: { event: EventResponse }) {
           </CardTitle>
           <CardDescription className="flex flex-col gap-1">
             {event.category && <span className="font-mono text-foreground">{eventCategoryLabels[event.category]}</span>}
+            {nextShow?.startsAt && nextShow.timeZone ? (
+              <span className="font-mono text-foreground">
+                <time dateTime={nextShow.startsAt}>{formatShowTime(nextShow.startsAt, nextShow.timeZone)}</time>
+                <br />
+                {nextShow.venueName}, {nextShow.city}
+              </span>
+            ) : (
+              <span className="font-mono">No upcoming Shows</span>
+            )}
+            {nextShow && lowestPrice?.amountPaise !== undefined && (
+              <span className="font-mono font-bold text-foreground">from {formatPrice(lowestPrice.amountPaise)}</span>
+            )}
             <span className="line-clamp-2">{event.description}</span>
           </CardDescription>
         </CardHeader>

@@ -3,6 +3,7 @@ package com.getmyseat.catalogue;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -33,8 +34,11 @@ class EventService {
 
 	private final EventRepository events;
 
-	EventService(EventRepository events) {
+	private final EventCards cards;
+
+	EventService(EventRepository events, EventCards cards) {
 		this.events = events;
+		this.cards = cards;
 	}
 
 	@Transactional
@@ -68,16 +72,21 @@ class EventService {
 		return this.events.findByOwnerSubject(organizer.subject(), withTieBreaker(pageable)).map(EventResponse::of);
 	}
 
-	/** @throws InvalidRequestException if the date range ends before it starts */
+	/**
+	 * Each Event comes with its next matching Show and lowest price, fetched for the whole page at once.
+	 * @throws InvalidRequestException if the date range ends before it starts
+	 */
 	@Transactional(readOnly = true)
-	Page<EventResponse> search(EventRepository.Filters filters, Pageable pageable) {
+	Page<EventCard> search(EventRepository.Filters filters, Pageable pageable) {
 		LocalDate from = filters.from();
 		LocalDate to = filters.to();
 		if (from != null && to != null && to.isBefore(from)) {
 			throw new InvalidRequestException("to", "must not be before from");
 		}
-		return this.events.findAll(EventRepository.published(filters, Instant.now()), withTieBreaker(pageable))
-			.map(event -> EventResponse.of(event).withoutOwner());
+		Instant now = Instant.now();
+		Page<Event> page = this.events.findAll(EventRepository.published(filters, now), withTieBreaker(pageable));
+		Map<UUID, EventCards.Browse> browse = this.cards.of(page.map(Event::id).getContent(), filters, now);
+		return page.map(event -> EventCard.of(event, browse.get(event.id())));
 	}
 
 	/** A published Event for anyone; its owner also sees it as a draft. */
