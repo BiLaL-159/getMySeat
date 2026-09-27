@@ -37,8 +37,31 @@ describe('problemFrom', () => {
     expect(problemFrom(status, problem(kind, status))).toEqual({ kind, status, detail: `The ${kind} detail.` })
   })
 
-  it.each(['inventory-unavailable', 'idempotency-key-reused'])('treats %s as a conflict', (type) => {
-    expect(problemFrom(409, problem(type, 409))).toMatchObject({ kind: 'conflict', status: 409 })
+  it('treats idempotency-key-reused as a conflict', () => {
+    expect(problemFrom(409, problem('idempotency-key-reused', 409))).toMatchObject({ kind: 'conflict', status: 409 })
+  })
+
+  it('keeps the Seats and Sections an inventory-unavailable problem names', () => {
+    const body = problem('inventory-unavailable', 409, {
+      unavailableSeats: ['a1', 'b3'],
+      unavailableSections: [{ sectionId: 'floor', available: 2 }],
+    })
+
+    expect(problemFrom(409, body)).toEqual({
+      kind: 'inventory-unavailable',
+      status: 409,
+      detail: 'The inventory-unavailable detail.',
+      unavailableSeats: ['a1', 'b3'],
+      unavailableSections: [{ sectionId: 'floor', available: 2 }],
+    })
+  })
+
+  it('reads an inventory-unavailable problem that names nothing as empty lists', () => {
+    expect(problemFrom(409, problem('inventory-unavailable', 409, { unavailableSections: [{ sectionId: 7 }] }))).toMatchObject({
+      kind: 'inventory-unavailable',
+      unavailableSeats: [],
+      unavailableSections: [],
+    })
   })
 
   it('falls back for a type it does not know, keeping the status and detail', () => {

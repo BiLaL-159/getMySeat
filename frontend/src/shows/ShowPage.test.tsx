@@ -1,9 +1,9 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetSession } from '@/auth/session.ts'
-import { resetAuth, setAuth, signedIn, signinRedirect } from '@/test/fakeAuth.ts'
+import { resetAuth, setAuth, signedIn, signedOut, signinRedirect } from '@/test/fakeAuth.ts'
 import { renderRoute } from '@/test/renderRoute.tsx'
 
 vi.mock('react-oidc-context', () => import('@/test/fakeAuth.ts'))
@@ -73,6 +73,30 @@ function availability({ floor = 37, a1 = true, a2 = false, b1 = true } = {}) {
     ],
   }
 }
+
+const holdsPath = '/api/v1/shows/show-1/holds'
+const myHoldPath = '/api/v1/shows/show-1/holds/mine'
+
+// A Hold of Balcony A1 and two Floor places.
+function hold(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'hold-1',
+    showId: 'show-1',
+    status: 'ACTIVE',
+    expiresAt: '2099-10-03T13:10:00Z',
+    items: [
+      { kind: 'GENERAL_ADMISSION', sectionId: 's-1', quantity: 2, pricePaise: 50000 },
+      { kind: 'SEAT', sectionId: 's-2', seatId: 'a1', rowLabel: 'A', seatNumber: 1, quantity: 1, pricePaise: 149950 },
+    ],
+    totalPaise: 249950,
+    currency: 'INR',
+    createdAt: '2099-10-03T13:00:00Z',
+    ...overrides,
+  }
+}
+
+const conflict = (type = 'conflict', extra: object = {}) =>
+  Response.json({ type: `urn:getmyseat:problem:${type}`, status: 409, ...extra }, { status: 409 })
 
 const availabilityRequests = () => api.requests.filter((request) => new URL(request.url).pathname === availabilityPath)
 
@@ -427,5 +451,138 @@ describe('selecting tickets', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /more floor tickets/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: /your selection/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('holding tickets', () => {
+  const holdRequests = () => api.requests.filter((request) => request.method === 'POST' && new URL(request.url).pathname === holdsPath)
+  const keysSent = () => holdRequests().map((request) => request.headers.get('Idempotency-Key'))
+  const summary = () => screen.getByRole('region', { name: /your selection/i })
+
+  beforeEach(() => setAuth(signedIn()))
+
+  async function pickA1AndTwoFloor(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+    await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+  }
+
+  it('holds the selection under an Idempotency-Key and shows the Hold', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () => {
+      api.responses[availabilityPath] = () => Response.json(availability({ a1: false, floor: 35 }))
+      return Response.json(hold(), { status: 201 })
+    }
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    const panel = await screen.findByRole('region', { name: /your hold/i })
+    const [request] = holdRequests()
+    expect(request.headers.get('Idempotency-Key')).toMatch(/^[\w-]{8,}$/)
+    expect(await request.json()).toEqual({ seats: ['a1'], generalAdmission: [{ sectionId: 's-1', quantity: 2 }] })
+
+    expect(within(within(panel).getByRole('list')).getAllByRole('listitem').map((line) => line.textContent)).toEqual([
+      expect.stringMatching(/Floor.*General Admission × 2.*₹500 each.*₹1,000/),
+      expect.stringMatching(/Balcony.*Row A, seat 1.*₹1,499.50/),
+    ])
+    expect(within(panel).getByText(/total/i).parentElement).toHaveTextContent('₹2,499.50')
+    const pay = within(panel).getByRole('button', { name: 'Pay' })
+    expect(pay).toBeDisabled()
+    expect(pay).toHaveAccessibleDescription('Payments arrive soon')
+
+    expect(await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, in my Hold' })).not.toBeChecked()
+    expect(within(summary()).queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('retries a plain conflict on its own, with the same key', async () => {
+    const user = userEvent.setup()
+    const answers = [conflict(), Response.json(hold(), { status: 201 })]
+    api.responses[holdsPath] = () => answers.shift()!
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    expect(await screen.findByRole('region', { name: /your hold/i })).toBeInTheDocument()
+    expect(keysSent()).toHaveLength(2)
+    expect(keysSent()[1]).toBe(keysSent()[0])
+  })
+
+  it('reuses the key when trying the same selection again, and not once it changes', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(await within(summary()).findByRole('alert')).toHaveTextContent(/couldn.t hold these tickets/i)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await waitFor(() => expect(keysSent()).toHaveLength(2))
+    expect(keysSent()[1]).toBe(keysSent()[0])
+
+    await user.click(screen.getByRole('checkbox', { name: /row B, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await waitFor(() => expect(keysSent()).toHaveLength(3))
+    expect(keysSent()[2]).not.toBe(keysSent()[0])
+  })
+
+  it('marks only what was lost, keeps the rest, says what went, and asks what is left', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () =>
+      conflict('inventory-unavailable', { unavailableSeats: ['a1'], unavailableSections: [{ sectionId: 's-1', available: 1 }] })
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('checkbox', { name: /row B, seat 1, available/ }))
+    const asked = availabilityRequests().length
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    const alert = await within(summary()).findByRole('alert')
+    expect(alert).toHaveTextContent(/someone else got there first/i)
+    expect(within(alert).getAllByRole('listitem').map((line) => line.textContent)).toEqual([
+      'Floor: only 1 place left',
+      'Balcony, row A, seat 1',
+    ])
+    expect(holdRequests()).toHaveLength(1)
+
+    const lost = screen.getByRole('checkbox', { name: 'Balcony, row A, seat 1, taken before you could hold it' })
+    expect(lost).not.toBeChecked()
+    expect(lost).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('checkbox', { name: /row B, seat 1, selected/ })).toBeChecked()
+    expect(within(screen.getByRole('group', { name: 'Floor' })).getByRole('status')).toHaveTextContent('1')
+    await waitFor(() => expect(availabilityRequests().length).toBeGreaterThan(asked))
+  })
+
+  it('brings the Hold back after a reload', async () => {
+    api.responses[myHoldPath] = () => Response.json(hold())
+    renderRoute('/shows/show-1')
+
+    const panel = await screen.findByRole('region', { name: /your hold/i })
+    expect(within(panel).getByText(/total/i).parentElement).toHaveTextContent('₹2,499.50')
+    expect(screen.getByRole('checkbox', { name: 'Balcony, row A, seat 1, in my Hold' })).toBeInTheDocument()
+  })
+
+  it('shows no Hold when there is none', async () => {
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })
+    await waitFor(() => expect(api.requests.some((request) => new URL(request.url).pathname === myHoldPath)).toBe(true))
+    expect(screen.queryByRole('region', { name: /your hold/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('asks a signed-out visitor to sign in instead of holding', async () => {
+    const user = userEvent.setup()
+    setAuth(signedOut())
+    renderRoute('/shows/show-1')
+
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/shows/show-1' } })
+    expect(holdRequests()).toHaveLength(0)
+    expect(api.requests.some((request) => new URL(request.url).pathname === myHoldPath)).toBe(false)
   })
 })

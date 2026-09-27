@@ -1,3 +1,4 @@
+import type { Lost } from './holding.ts'
 import type { MapSection } from './seatMap.ts'
 
 // The most tickets one Hold can take, across Seats and General Admission.
@@ -63,6 +64,19 @@ export function pruneSelection(selection: Selection, sections: MapSection[]): Se
     seats.length !== selection.seats.length ||
     Object.entries(selection.generalAdmission).some(([sectionId, quantity]) => generalAdmission[sectionId] !== quantity)
   return changed ? { seats, generalAdmission } : selection
+}
+
+// The selection after a Hold failed on inventory that's gone: the lost Seats drop out, and each
+// General Admission shortfall comes down to what's left. Everything else stays, ready to try again.
+export function dropLost(selection: Selection, { unavailableSeats, unavailableSections }: Lost): Selection {
+  const lost = new Set(unavailableSeats)
+  const generalAdmission = { ...selection.generalAdmission }
+  for (const { sectionId, available } of unavailableSections) {
+    const quantity = Math.min(generalAdmission[sectionId] ?? 0, available)
+    if (quantity > 0) generalAdmission[sectionId] = quantity
+    else delete generalAdmission[sectionId]
+  }
+  return { seats: selection.seats.filter((id) => !lost.has(id)), generalAdmission }
 }
 
 export type SelectionLine = { key: string; section: string; place: string; pricePaise: number; amountPaise: number }
