@@ -1,7 +1,8 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { useEventSearch } from '@/api/events.ts'
-import { atVenue, isOnTonight, isScheduled, soonestFirst, tonightQuery } from './whatsOn.ts'
+import { formatShowPart } from '@/shows/format.ts'
+import { isOnTonight, isScheduled, soonestFirst, tonightQuery } from './whatsOn.ts'
 
 // The strip under the hero: what's on today in the city, at each Venue's own today.
 export function Tonight({ city, cities }: { city: string | undefined; cities: UseQueryResult<string[]> }) {
@@ -20,7 +21,7 @@ export function Tonight({ city, cities }: { city: string | undefined; cities: Us
     items = tonight.map(({ id, title, nextShow }) => (
       <li key={id}>
         <Link to={`/events/${id}`}>
-          <b>{title}</b> <span>{atVenue(nextShow.startsAt, nextShow.timeZone, { hour: 'numeric', minute: '2-digit' })} · {nextShow.venueName}</span>
+          <b>{title}</b> <span><time dateTime={nextShow.startsAt}>{formatShowPart(nextShow.startsAt, nextShow.timeZone, { hour: 'numeric', minute: '2-digit' })}</time> · {nextShow.venueName}</span>
         </Link>
       </li>
     ))

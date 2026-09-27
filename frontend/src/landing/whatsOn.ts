@@ -31,9 +31,10 @@ export function isOnTonight({ nextShow }: ScheduledEvent, now: Date) {
   return dateAt(new Date(nextShow.startsAt), nextShow.timeZone) === dateAt(now, nextShow.timeZone)
 }
 
-// Events with a Show still to come, from today on.
+// Events with a Show still to come. The API only gives Shows yet to start, so asking from the
+// visitor's yesterday keeps a Show later today at a Venue whose date is behind the visitor's.
 export function guideQuery(tab: GuideTab, today: Date): EventSearchQuery {
-  return { ...(tab === 'ALL' ? {} : { category: tab }), from: isoDate(today), size: 12 }
+  return { ...(tab === 'ALL' ? {} : { category: tab }), from: isoDate(plusDays(today, -1)), size: 12 }
 }
 
 export function soonestFirst(cards: ScheduledEvent[]) {
@@ -48,9 +49,4 @@ export function knownCity(remembered: string | null, cities: string[] | undefine
 // Tonight is in the chosen city, or with none chosen, the first one.
 export function tonightCity(chosen: string, cities: string[] | undefined) {
   return chosen || cities?.[0]
-}
-
-// Part of a Show's start as it reads at its Venue, such as its time or its day of the month.
-export function atVenue(startsAt: string, timeZone: string, part: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat('en-IN', { timeZone, ...part }).format(new Date(startsAt))
 }

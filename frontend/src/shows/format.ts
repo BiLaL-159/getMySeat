@@ -20,3 +20,8 @@ export function formatShowTime(startsAt: string, timeZone: string) {
     timeZoneName: 'short',
   }).format(new Date(startsAt))
 }
+
+// Part of a Show's start at its Venue, such as its time or its day of the month.
+export function formatShowPart(startsAt: string, timeZone: string, part: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat('en-IN', { timeZone, ...part }).format(new Date(startsAt))
+}

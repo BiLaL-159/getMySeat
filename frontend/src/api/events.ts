@@ -44,6 +44,7 @@ export function useEventSearch(query: EventSearchQuery | undefined) {
     placeholderData: keepPreviousData,
     queryFn: async () => {
       // A failure rejects with an ApiError, so data is there.
+      // Only enabled with a query, so it's there.
       const { data } = await api.GET('/api/v1/events', { params: { query: query! } })
       return data!
     },

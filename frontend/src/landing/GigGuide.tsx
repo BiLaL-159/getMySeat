@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { eventCategoryLabels, useEventSearch } from '@/api/events.ts'
 import { categoryArt } from '@/events/categoryArt.ts'
-import { formatPrice } from '@/shows/format.ts'
-import { atVenue, guideQuery, isScheduled, soonestFirst, type GuideTab, type ScheduledEvent } from './whatsOn.ts'
+import { formatPrice, formatShowPart } from '@/shows/format.ts'
+import { guideQuery, isScheduled, soonestFirst, type GuideTab, type ScheduledEvent } from './whatsOn.ts'
 
 const tabs: [GuideTab, string][] = [['ALL', 'All'], ['MUSIC', 'Music'], ['COMEDY', 'Comedy'], ['THEATRE', 'Theatre'], ['SPORTS', 'Sport']]
 
@@ -38,11 +38,11 @@ export function GigGuide() {
 
 function Gig({ event: { id, title, category, nextShow, lowestPrice } }: { event: ScheduledEvent }) {
   const art = categoryArt[category ?? 'OTHER']
-  const at = (part: Intl.DateTimeFormatOptions) => atVenue(nextShow.startsAt, nextShow.timeZone, part)
+  const at = (part: Intl.DateTimeFormatOptions) => formatShowPart(nextShow.startsAt, nextShow.timeZone, part)
   return (
     // data-poster is the artwork mountLanding floats beside the pointer.
     <Link className="gig" to={`/events/${id}`} data-poster={art}>
-      <div className="date"><b className="num">{at({ day: 'numeric' })}</b><span className="label">{at({ month: 'short' })}<br />{at({ weekday: 'short' })}</span></div>
+      <time className="date" dateTime={nextShow.startsAt}><b className="num">{at({ day: 'numeric' })}</b><span className="label">{at({ month: 'short' })}<br />{at({ weekday: 'short' })}</span></time>
       <div className="t">
         <img className="thumb" src={art} alt="" loading="lazy" />
         <div>

@@ -28,7 +28,7 @@ export function useLandingCity(cities: string[] | undefined) {
   const city = knownCity(chosen, cities)
   return {
     city,
-    tonight: tonightCity(city, cities),
+    tonightCity: tonightCity(city, cities),
     choose(next: string) {
       setChosen(next)
       remember(next)

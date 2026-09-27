@@ -40,10 +40,10 @@ describe('tonight', () => {
 })
 
 describe('gig guide', () => {
-  it('asks for Events with a Show from today on, of the category unless it is all of them', () => {
+  it('asks for Events with a Show still to come, from yesterday so no Venue time zone misses today, of the category unless it is all of them', () => {
     const today = new Date(2026, 8, 30, 12, 0)
-    expect(guideQuery('ALL', today)).toEqual({ from: '2026-09-30', size: 12 })
-    expect(guideQuery('COMEDY', today)).toEqual({ category: 'COMEDY', from: '2026-09-30', size: 12 })
+    expect(guideQuery('ALL', today)).toEqual({ from: '2026-09-29', size: 12 })
+    expect(guideQuery('COMEDY', today)).toEqual({ category: 'COMEDY', from: '2026-09-29', size: 12 })
   })
 
   it('puts the soonest next Show first', () => {

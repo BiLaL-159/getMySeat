@@ -12,7 +12,7 @@ import './landing.css'
 function Landing() {
   const session = useSession()
   const cities = useCities()
-  const city = useLandingCity(cities.data)
+  const landingCity = useLandingCity(cities.data)
   useEffect(() => mountLanding(), [])
 
   return (
@@ -48,14 +48,14 @@ function Landing() {
               <h1>Be in<span className="l2">the room.</span></h1>
               <div className="hero-row">
                 <p>Pick your exact seat, see the stage from it, and book the whole group side by side.</p>
-                <SearchForm cities={cities.data} city={city.city} onCityChange={city.choose} />
+                <SearchForm cities={cities.data} city={landingCity.city} onCityChange={landingCity.choose} />
               </div>
             </div>
           </div>
         </div>
         <div className="in">
         </div>
-        <Tonight city={city.tonight} cities={cities} />
+        <Tonight city={landingCity.tonightCity} cities={cities} />
       </div>
 
       <section className="demo" id="view">
