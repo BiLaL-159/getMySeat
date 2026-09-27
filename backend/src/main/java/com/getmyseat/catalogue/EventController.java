@@ -102,8 +102,8 @@ class EventController {
 	@GetMapping
 	@SecurityRequirements
 	@Operation(summary = "Search published Events, most recently published first",
-			description = "Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone.")
-	Page<EventResponse> search(@RequestParam(required = false) @Nullable String q,
+			description = "Public. q matches part of the title or description, ignoring case. city, from and to match Events with at least one upcoming published Show in that city (ignoring case) starting between those dates, inclusive, in the Venue's time zone. Each Event comes with its next upcoming published Show and the lowest Section Price across its upcoming published Shows, both among the Shows matching city, from and to when given.")
+	Page<EventCard> search(@RequestParam(required = false) @Nullable String q,
 			@RequestParam(required = false) @Nullable String city,
 			@RequestParam(required = false) Event.@Nullable Category category,
 			@Parameter(description = "ISO date such as 2026-10-01") @RequestParam(required = false) @Nullable LocalDate from,
