@@ -111,7 +111,8 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const myHoldSeats = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
 
   // A selection kept while the visitor went to sign in comes back once, and is checked against the
-  // first availability to arrive. The note says so, and what went meanwhile, until the visitor moves on.
+  // first availability to arrive. The note says so, whether it's been checked yet, and what went
+  // meanwhile, until the visitor moves on. Until the check, `gone` is undefined.
   const [kept] = useState(() => keptSelection(show.id!))
   useEffect(() => {
     if (kept) forgetKeptSelection()
@@ -160,7 +161,10 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
     [lost],
   )
 
+  // While the session is still being restored, it isn't known yet whether the visitor needs to sign in.
+  const sessionSettled = session.status !== 'signingIn'
   const onHold = () => {
+    if (!sessionSettled) return
     if (session.status !== 'signedIn') {
       keepSelection(show.id!, selection)
       session.signIn(location.pathname + location.search)
@@ -256,7 +260,16 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   } else if (createHold.isError) {
     holdOutcome = <p role="alert" className="text-destructive">We couldn&apos;t hold these tickets. {problemMessage(createHold.error)}</p>
   } else if (keptNote) {
-    holdOutcome = <KeptNote gone={keptNote.gone} sections={sections} empty={ticketCount(selection) === 0} />
+    holdOutcome = (
+      <KeptNote
+        gone={keptNote.gone}
+        // Stale availability still checks it once the visitor's own Hold is known.
+        checkFailed={availability.isError && !availability.isFetching && !availability.data}
+        onCheckAgain={() => void availability.refetch()}
+        sections={sections}
+        empty={ticketCount(selection) === 0}
+      />
+    )
   }
 
   return (
@@ -285,6 +298,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
           show={show}
           replacing={!!hold}
           holding={createHold.isPending}
+          sessionSettled={sessionSettled}
           outcome={holdOutcome}
           onHold={onHold}
         />
@@ -293,9 +307,33 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   )
 }
 
-// Tells a visitor back from signing in that their selection was kept, and what of it went while they were away.
-function KeptNote({ gone, sections, empty }: { gone: Lost | undefined; sections: MapSection[]; empty: boolean }) {
-  const lines = gone ? describeLoss(gone, sections) : []
+// Tells a visitor back from signing in that their selection was kept, and what of it went while they
+// were away. Until availability has checked it, it says whether that's on its way or failed.
+function KeptNote({
+  gone,
+  checkFailed,
+  onCheckAgain,
+  sections,
+  empty,
+}: {
+  gone: Lost | undefined
+  checkFailed: boolean
+  onCheckAgain: () => void
+  sections: MapSection[]
+  empty: boolean
+}) {
+  if (!gone) {
+    // The map already alerts that availability failed, so this only says what that means here.
+    return checkFailed ? (
+      <p role="status" className="text-destructive">
+        We kept the tickets you picked, but couldn&apos;t check what&apos;s still left.{' '}
+        <Button variant="link" className="h-auto p-0" onClick={onCheckAgain}>Check again</Button>
+      </p>
+    ) : (
+      <p role="status" className="font-mono text-sm">We kept the tickets you picked. Checking they&apos;re still there…</p>
+    )
+  }
+  const lines = describeLoss(gone, sections)
   if (lines.length === 0) {
     return <p role="status" className="font-mono text-sm">We kept the tickets you picked. Hold them when you&apos;re ready.</p>
   }
@@ -320,6 +358,7 @@ function SelectionSummary({
   show,
   replacing,
   holding,
+  sessionSettled,
   outcome,
   onHold,
 }: {
@@ -329,6 +368,8 @@ function SelectionSummary({
   // Whether the visitor has an active Hold here, which holding this selection would replace.
   replacing: boolean
   holding: boolean
+  // Whether it's known yet if the visitor is signed in, so Hold knows whether to hold or send them to sign in.
+  sessionSettled: boolean
   outcome: ReactNode
   onHold: () => void
 }) {
@@ -376,7 +417,7 @@ function SelectionSummary({
         <p id={replaceNoteId} className="font-mono text-sm">Holding these will replace your current Hold.</p>
       )}
       <Button
-        disabled={ticketCount(selection) === 0 || holding}
+        disabled={ticketCount(selection) === 0 || holding || !sessionSettled}
         onClick={onHold}
         aria-describedby={willReplace ? replaceNoteId : undefined}
         className="self-end"
