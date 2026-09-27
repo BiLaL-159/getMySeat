@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { forgetKeptSelection, keepSelection, keptSelection } from './keptSelection.ts'
+import { forgetKeptSelection, keepSelection, keptSelection, storageKey } from './keptSelection.ts'
+import { maxTickets } from './selection.ts'
 
 const picked = { seats: ['a1', 'b1'], generalAdmission: { floor: 2 } }
 
@@ -41,9 +42,9 @@ describe('kept selection', () => {
     ['a Seat that is not an id', JSON.stringify({ showId: 'show-1', selection: { seats: [7], generalAdmission: {} } })],
     ['a quantity that is not a count', JSON.stringify({ showId: 'show-1', selection: { seats: [], generalAdmission: { floor: 1.5 } } })],
     ['nothing picked', JSON.stringify({ showId: 'show-1', selection: { seats: [], generalAdmission: {} } })],
-    ['more than one Hold can take', JSON.stringify({ showId: 'show-1', selection: { seats: [], generalAdmission: { floor: 11 } } })],
+    ['more than one Hold can take', JSON.stringify({ showId: 'show-1', selection: { seats: [], generalAdmission: { floor: maxTickets + 1 } } })],
   ])('ignores a kept selection with %s', (_, stored) => {
-    sessionStorage.setItem('getmyseat.keptSelection', stored)
+    sessionStorage.setItem(storageKey, stored)
 
     expect(keptSelection('show-1')).toBeUndefined()
   })

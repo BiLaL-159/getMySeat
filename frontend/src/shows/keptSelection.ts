@@ -1,9 +1,10 @@
 import { maxTickets, ticketCount, type Selection } from './selection.ts'
 
 // A selection kept across the trip to sign in and back, for one Show at a time. It lives in
-// sessionStorage, so it's only for this tab, and it stays until it's held or the visitor changes it.
-const storageKey = 'getmyseat.keptSelection'
+// sessionStorage, so it's only for this tab, and the Show page forgets it once it's brought back.
+export const storageKey = 'getmyseat.keptSelection'
 
+// Keeps the selection for this Show, in place of any kept before.
 export function keepSelection(showId: string, selection: Selection) {
   try {
     sessionStorage.setItem(storageKey, JSON.stringify({ showId, selection }))
@@ -25,6 +26,7 @@ export function keptSelection(showId: string): Selection | undefined {
   return count > 0 && count <= maxTickets ? kept.selection : undefined
 }
 
+// Forgets whatever was kept, once it's back on the page.
 export function forgetKeptSelection() {
   try {
     sessionStorage.removeItem(storageKey)

@@ -734,7 +734,7 @@ describe('signing in to hold', () => {
     setAuth(signedIn())
     renderRoute('/shows/show-1')
 
-    const note = await within(await screen.findByRole('region', { name: /your selection/i })).findByText(/went while you were signing in/i)
+    const note = await within(await screen.findByRole('region', { name: /your selection/i })).findByText(/went while you were away/i)
     expect(within(note.parentElement!).getAllByRole('listitem').map((line) => line.textContent)).toEqual([
       'Floor: only 1 place left',
       'Balcony, row A, seat 1',
@@ -754,7 +754,7 @@ describe('signing in to hold', () => {
     setAuth(signedIn())
     renderRoute('/shows/show-1')
 
-    expect(await screen.findByText(/everything you picked went while you were signing in/i)).toBeInTheDocument()
+    expect(await screen.findByText(/everything you picked went while you were away/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Hold' })).toBeDisabled()
   })
 
@@ -767,21 +767,20 @@ describe('signing in to hold', () => {
     expect(screen.queryByText(/kept the tickets you picked/i)).not.toBeInTheDocument()
   })
 
-  it('forgets the kept selection once it is held', async () => {
-    api.responses[holdsPath] = () => Response.json(hold(), { status: 201 })
-    const user = await signInToHold()
-
+  it('brings the kept selection back only once', async () => {
+    await signInToHold()
     await screen.findByRole('checkbox', { name: /row A, seat 1, selected/ })
-    await user.click(screen.getByRole('button', { name: 'Hold' }))
-    await screen.findByRole('region', { name: /your hold/i })
     expect(keptSelection('show-1')).toBeUndefined()
+
+    cleanup()
+    renderRoute('/shows/show-1')
+    expect(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })).not.toBeChecked()
   })
 
-  it('forgets the kept selection, and the note, once the visitor changes it', async () => {
+  it('drops the note once the visitor changes the selection', async () => {
     const user = await signInToHold()
 
     await user.click(await screen.findByRole('checkbox', { name: /row B, seat 1, available/ }))
-    expect(keptSelection('show-1')).toBeUndefined()
     expect(screen.queryByText(/kept the tickets you picked/i)).not.toBeInTheDocument()
     expect(summaryLines()).toHaveLength(3)
   })

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
 import { useCreateHold, useMyHold, type Hold } from '@/api/holds.ts'
@@ -105,22 +105,24 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const hold = myHold.data?.status === 'ACTIVE' ? myHold.data : undefined
   const myHoldSeats = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
 
-  // A selection kept while the visitor went to sign in comes back, and is checked against the first
-  // availability to arrive. The note says so, and what went meanwhile, until the visitor moves on.
+  // A selection kept while the visitor went to sign in comes back once, and is checked against the
+  // first availability to arrive. The note says so, and what went meanwhile, until the visitor moves on.
   const [kept] = useState(() => keptSelection(show.id!))
+  useEffect(() => {
+    if (kept) forgetKeptSelection()
+  }, [kept])
   const [selection, setSelection] = useState(kept ?? emptySelection)
   const [keptNote, setKeptNote] = useState<{ gone?: Lost } | undefined>(kept && {})
-  // Whatever someone else took since the last look drops out of the selection.
-  const [lastPrunedSections, setLastPrunedSections] = useState(kept ? undefined : sections)
+  // Whatever someone else took since the last look drops out of the selection. A kept selection
+  // has never been checked, so it's checked against whatever availability comes first.
+  const [lastPrunedSections, setLastPrunedSections] = useState<MapSection[] | 'never'>(kept ? 'never' : sections)
   if (lastPrunedSections !== sections && availability.data) {
     setLastPrunedSections(sections)
     const pruned = pruneSelection(selection, sections)
     setSelection(pruned)
-    if (kept && !lastPrunedSections) setKeptNote({ gone: goneFrom(selection, pruned, sections) })
+    if (lastPrunedSections === 'never') setKeptNote({ gone: goneFrom(selection, pruned, sections) })
   }
-  // The visitor changed what they picked, so there's nothing kept to bring back.
-  const change = (next: (picked: Selection) => Selection) => {
-    forgetKeptSelection()
+  const changeSelection = (next: (picked: Selection) => Selection) => {
     setKeptNote(undefined)
     setSelection(next)
   }
@@ -165,10 +167,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
       {
         onSuccess: (made) => {
           attemptKeys.forget()
-          if (made.status === 'ACTIVE') {
-            forgetKeptSelection()
-            setSelection((picked) => withoutHeld(picked, request))
-          }
+          if (made.status === 'ACTIVE') setSelection((picked) => withoutHeld(picked, request))
           else setEnded(true)
         },
         onError: (error) => {
@@ -208,9 +207,9 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
         full: isFull(selection),
         lostSeats,
         lostSections,
-        onToggleSeat: (seatId: string) => change((picked) => toggleSeat(picked, seatId, sections)),
+        onToggleSeat: (seatId: string) => changeSelection((picked) => toggleSeat(picked, seatId, sections)),
         onSetGeneralAdmission: (sectionId: string, quantity: number) =>
-          change((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
+          changeSelection((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
       }
     : undefined
 
@@ -257,18 +256,18 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   )
 }
 
-// Tells a visitor back from signing in that their selection was kept, and what of it went meanwhile.
+// Tells a visitor back from signing in that their selection was kept, and what of it went while they were away.
 function KeptNote({ gone, sections, empty }: { gone: Lost | undefined; sections: MapSection[]; empty: boolean }) {
   const lines = gone ? describeLoss(gone, sections) : []
   if (lines.length === 0) {
-    return <p role="status" className="font-mono text-sm">We kept the tickets you picked before signing in. Hold them when you&apos;re ready.</p>
+    return <p role="status" className="font-mono text-sm">We kept the tickets you picked. Hold them when you&apos;re ready.</p>
   }
   return (
     <div role="alert" className="flex flex-col gap-1 text-destructive">
       <p>
         {empty
-          ? 'Everything you picked went while you were signing in, so there is nothing left to hold.'
-          : 'We kept the tickets you picked before signing in, but some went while you were signing in:'}
+          ? 'Everything you picked went while you were away, so there is nothing left to hold.'
+          : 'We kept the tickets you picked, but some went while you were away:'}
       </p>
       <ul className="list-inside list-disc font-mono text-sm">
         {lines.map((line) => <li key={line}>{line}</li>)}
