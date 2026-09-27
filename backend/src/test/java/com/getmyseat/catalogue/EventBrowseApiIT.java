@@ -399,6 +399,9 @@ class EventBrowseApiIT {
 		assertThat(ids(search("q=" + tag + "&from=" + fifteenDays + "&sort=nextShow"))).containsExactly(touring, local);
 		assertThat(ids(search("city=" + city + "&from=" + fifteenDays + "&sort=nextShow"))).containsExactly(touring,
 				local);
+		assertThat(ids(search("q=" + tag + "&to=" + fifteenDays + "&sort=nextShow"))).containsExactly(touring, local);
+		assertThat(ids(search("q=" + tag + "&from=" + fifteenDays + "&to=" + fifteenDays.plusDays(6) + "&sort=nextShow")))
+			.containsExactly(touring);
 	}
 
 	@Test

@@ -1,4 +1,5 @@
 import type { EventCard, EventCategory, EventSearchQuery } from '@/api/events.ts'
+import { sortDirections } from '@/events/search.ts'
 import { isoDate, plusDays } from './landingSearch.ts'
 
 // An Event with a next Show whose start and Venue time zone are known, as every browse result
@@ -10,9 +11,6 @@ export type ScheduledEvent = EventCard & {
 export function isScheduled(card: EventCard): card is ScheduledEvent {
   return !!card.nextShow?.startsAt && !!card.nextShow.timeZone
 }
-
-// By when each Event's next Show among the ones asked for starts.
-const soonestFirst = 'nextShow,asc'
 
 // The gig guide's tabs: every category, or one of them.
 export type GuideTab = 'ALL' | EventCategory
@@ -26,7 +24,7 @@ function dateAt(instant: Date, timeZone: string) {
 // tomorrow, so this asks for all three and isOnTonight keeps the ones that are today there.
 // Soonest first, tonight's come before tomorrow's, so the first page has all of them.
 export function tonightQuery(city: string, today: Date): EventSearchQuery {
-  return { city, from: isoDate(plusDays(today, -1)), to: isoDate(plusDays(today, 1)), sort: [soonestFirst], size: 20 }
+  return { city, from: isoDate(plusDays(today, -1)), to: isoDate(plusDays(today, 1)), sort: [sortDirections.nextShow], size: 20 }
 }
 
 // Whether an Event's next Show is on today at its Venue. The next Show is the soonest one
@@ -38,7 +36,7 @@ export function isOnTonight({ nextShow }: ScheduledEvent, now: Date) {
 // Events with a Show still to come. The API only gives Shows yet to start, so asking from the
 // visitor's yesterday keeps a Show later today at a Venue whose date is behind the visitor's.
 export function guideQuery(tab: GuideTab, today: Date): EventSearchQuery {
-  return { ...(tab === 'ALL' ? {} : { category: tab }), from: isoDate(plusDays(today, -1)), sort: [soonestFirst], size: 12 }
+  return { ...(tab === 'ALL' ? {} : { category: tab }), from: isoDate(plusDays(today, -1)), sort: [sortDirections.nextShow], size: 12 }
 }
 
 // A remembered city counts only while it's still one of the cities; otherwise it's any city.

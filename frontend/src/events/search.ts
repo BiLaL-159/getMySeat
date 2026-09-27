@@ -26,7 +26,7 @@ export const sortLabels: Record<Sort, string> = {
   title: 'Title, A to Z',
 }
 
-const sortDirections: Record<Sort, string> = { publishedAt: 'publishedAt,desc', nextShow: 'nextShow,asc', title: 'title,asc' }
+export const sortDirections: Record<Sort, string> = { publishedAt: 'publishedAt,desc', nextShow: 'nextShow,asc', title: 'title,asc' }
 
 function isCategory(value: string): value is EventCategory {
   return Object.hasOwn(eventCategoryLabels, value)

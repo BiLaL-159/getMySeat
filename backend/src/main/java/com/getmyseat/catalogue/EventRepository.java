@@ -11,6 +11,7 @@ import java.util.function.Function;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -61,7 +62,7 @@ interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationEx
 	 * Published Events matching the filters. The city and dates must all match one Show that is published and
 	 * starts after {@code now}.
 	 */
-	static Specification<Event> published(Filters filters, Instant now) {
+	private static Specification<Event> published(Filters filters, Instant now) {
 		Specification<Event> spec = (event, query, cb) -> cb.equal(event.get("status"), Event.Status.PUBLISHED);
 		String q = filters.q();
 		if (hasText(q)) {
@@ -80,10 +81,16 @@ interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationEx
 	}
 
 	/**
-	 * Orders by {@code sort}, whose properties are the Event's own or {@link #NEXT_SHOW}, then by id so pages stay
-	 * stable when sort values repeat. Pass the page request unsorted, or its sort replaces this one.
+	 * A page of the published Events matching the filters, sorted by the Event's own properties or
+	 * {@link #NEXT_SHOW}, then by id so pages stay stable when sort values repeat.
 	 */
-	static Specification<Event> sortedBy(Sort sort, Filters filters, Instant now) {
+	default Page<Event> search(Filters filters, Instant now, Pageable pageable) {
+		// The specification sorts, as a Pageable can't sort by a Show; a sorted one would replace its order.
+		return findAll(published(filters, now).and(sortedBy(pageable.getSort(), filters, now)),
+				PageRequest.of(pageable.getPageNumber(), pageable.getPageSize()));
+	}
+
+	private static Specification<Event> sortedBy(Sort sort, Filters filters, Instant now) {
 		return (event, query, cb) -> {
 			// Spring Data counts the matches with this specification too, and a count has no order.
 			if (!Long.class.equals(query.getResultType())) {
