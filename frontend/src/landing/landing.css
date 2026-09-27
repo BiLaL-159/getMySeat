@@ -55,6 +55,8 @@ nav{display:flex;align-items:center;justify-content:space-between;gap:16px;paddi
 .tonight ul{display:flex;gap:28px;list-style:none;margin:0;padding:0;font-size:15px;color:var(--night-ink)}
 .tonight li b{font-weight:700}
 .tonight li span{color:var(--night-dim)}
+.tonight a{text-decoration:none}
+.tonight a:hover b{color:var(--lime)}
 
 /* ---------- Seat booking: house lights down ---------- */
 .demo{padding-block:clamp(72px,9vw,128px) clamp(56px,7vw,96px)}

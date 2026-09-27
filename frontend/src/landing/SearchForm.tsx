@@ -1,15 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { useCities } from '@/api/cities.ts'
 import { landingSearchPath, whenLabels, type When } from './landingSearch.ts'
 
+type Props = { cities: string[] | undefined; city: string; onCityChange: (city: string) => void }
+
 // The hero's search, leading to the /events results. Without the cities it still searches, just
-// not by city.
-export function SearchForm() {
+// not by city. The city is the landing page's, since the Tonight strip follows it.
+export function SearchForm({ cities, city, onCityChange }: Props) {
   const navigate = useNavigate()
-  const cities = useCities()
   const [q, setQ] = useState('')
-  const [city, setCity] = useState('')
   const [when, setWhen] = useState<When>('weekend')
 
   return (
@@ -23,9 +22,9 @@ export function SearchForm() {
       }}
     >
       <label htmlFor="q-city"><span className="label">City</span>
-        <select id="q-city" value={city} onChange={(e) => setCity(e.target.value)}>
+        <select id="q-city" value={city} onChange={(e) => onCityChange(e.target.value)}>
           <option value="">Any city</option>
-          {cities.data?.map((name) => <option key={name}>{name}</option>)}
+          {cities?.map((name) => <option key={name}>{name}</option>)}
         </select>
       </label>
       <label htmlFor="q-what"><span className="label">Who or what</span>

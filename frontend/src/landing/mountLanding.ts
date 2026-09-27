@@ -1,7 +1,10 @@
-// Behaviour for the landing page: tonight strip, seat map, gig guide, venue
-// editor and the WebGL layers. Ported from frontend_design/landing.html and
-// driven imperatively against the markup rendered by Landing.tsx.
+// Behaviour for the landing page: seat map, gig posters, venue editor and the
+// WebGL layers. Ported from frontend_design/landing.html and driven
+// imperatively against the markup rendered by Landing.tsx, which also renders
+// the tonight strip and gig guide from the API.
 // Returns a cleanup that stops every listener, observer and frame loop.
+
+import { categoryArt } from '@/events/categoryArt.ts'
 
 type Seat = {
   r: number; a: number; block: string
@@ -69,27 +72,9 @@ void main(){
   o = vec4(mix(a, b, 1. - smoothstep(rad - .05, rad + .05, r)), 1.);
 }`
 
-const TONIGHT: Record<string, [string, string][]> = {
-  Mumbai: [['Kiln Yard Jazz Sessions', '8:30 pm · 41 left'], ['Tanvi Rao: Work in Progress', '9:00 pm · 12 left'], ['Monsoon Frequencies', 'Sat · 212 left']],
-  Bengaluru: [['Open Mic at Tin Roof', '9:00 pm · 30 left'], ['Carnatic Nights', '7:00 pm · 64 left']],
-  Delhi: [['Tughlaq', '7:00 pm · 88 left'], ['Qawwali at the Fort', '8:00 pm · 19 left']],
-  Pune: [['Kabaddi: Pune vs Jaipur', '6:30 pm · 540 left']],
-}
-
-const GIGS = [
-  { cat: 'MUSIC', title: 'Monsoon Frequencies', poster: 'p-monsoon', venue: 'Harbourline Arena', city: 'Mumbai', when: '2026-10-17T14:00:00Z', from: 2500, left: 212, cap: 1800 },
-  { cat: 'COMEDY', title: 'Tanvi Rao: Work in Progress', poster: 'p-tanvi', venue: 'Chalk Room', city: 'Mumbai', when: '2026-10-09T15:30:00Z', from: 799, left: 12, cap: 212 },
-  { cat: 'THEATRE', title: 'Tughlaq', poster: 'p-tughlaq', venue: 'Rangmanch Hall', city: 'Delhi', when: '2026-10-24T13:30:00Z', from: 1200, left: 88, cap: 420 },
-  { cat: 'SPORTS', title: 'Kabaddi: Pune vs Jaipur', poster: 'p-kabaddi', venue: 'Riverside Dome', city: 'Pune', when: '2026-11-01T13:00:00Z', from: 450, left: 540, cap: 4000 },
-  { cat: 'MUSIC', title: 'Kiln Yard Jazz Sessions', poster: 'p-jazz', venue: 'Kiln Yard', city: 'Mumbai', when: '2026-10-30T15:00:00Z', from: 999, left: 41, cap: 260 },
-  { cat: 'COMEDY', title: 'Open Mic at Tin Roof', poster: 'p-openmic', venue: 'Tin Roof Club', city: 'Bengaluru', when: '2026-11-07T14:30:00Z', from: 599, left: 30, cap: 140 },
-]
-const catName: Record<string, string> = { MUSIC: 'Music', COMEDY: 'Comedy', THEATRE: 'Theatre', SPORTS: 'Sport' }
-
 const LIME = '#CDEB3A'
 const inr = (p: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(p)
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
-const part = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', ...o }).format(new Date(iso))
 const load = (src: string) => new Promise<HTMLImageElement>((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src })
 
 function fit(c: HTMLCanvasElement): [CanvasRenderingContext2D, number, number] {
@@ -152,15 +137,6 @@ export function mountLanding(): () => void {
   const timers = new Set<number>()
   let alive = true
   const frame = (cb: FrameRequestCallback) => requestAnimationFrame(t => { if (alive) cb(t) })
-
-  /* ---------- Tonight strip ---------- */
-  function tonight(city: string) {
-    $('tonightLabel').textContent = 'Tonight in ' + city
-    $('tonightList').innerHTML = TONIGHT[city].map(([a, b]) => `<li><b>${a}</b> <span>${b}</span></li>`).join('')
-  }
-  // The search form's cities come from the API; the stub strip only knows some of them.
-  $('q-city').addEventListener('change', e => { const city = (e.target as HTMLSelectElement).value; if (Object.hasOwn(TONIGHT, city)) tonight(city) }, { signal })
-  tonight('Mumbai')
 
   /* ---------- Seat map: a curved house around a lit stage ---------- */
   const NS = 'http://www.w3.org/2000/svg'
@@ -386,26 +362,6 @@ export function mountLanding(): () => void {
     return () => { if (!raf) frame(draw) }
   }
 
-  /* ---------- Gig guide ---------- */
-  function renderGigs(cat: string) {
-    const list = GIGS.filter(e => cat === 'ALL' || e.cat === cat).sort((a, b) => a.when.localeCompare(b.when))
-    $('gigs').innerHTML = list.length ? list.map(e => {
-      const sold = 1 - e.left / e.cap, hot = e.left < 50
-      return `<a class="gig${hot ? ' hot' : ''}" href="#view" data-poster="${e.poster}">
-        <div class="date"><b class="num">${part(e.when, { day: 'numeric' })}</b><span class="label">${part(e.when, { month: 'short' })}<br>${part(e.when, { weekday: 'short' })}</span></div>
-        <div class="t"><img class="thumb" src="${ASSETS}${e.poster}.webp" alt="" loading="lazy"><div><h3>${e.title}</h3><div class="sub">${e.venue}, ${e.city} · ${catName[e.cat]} · ${part(e.when, { hour: 'numeric', minute: '2-digit' })}</div></div></div>
-        <div class="avail"><span class="left label">${hot ? `Only ${e.left} left` : `${e.left} seats left`}</span><div class="bar"><i style="width:${Math.round(sold * 100)}%"></i></div></div>
-        <div class="from num"><small>From</small>${inr(e.from)}</div>
-        <span class="go">Seats <i aria-hidden="true">→</i></span>
-      </a>`
-    }).join('') : '<p class="empty">Nothing here yet. Try another type.</p>'
-  }
-  const tabs = document.querySelectorAll<HTMLButtonElement>('.tabs button')
-  tabs.forEach(b => b.addEventListener('click', () => {
-    tabs.forEach(x => x.setAttribute('aria-pressed', String(x === b))); renderGigs(b.dataset.cat!)
-  }, { signal }))
-  renderGigs('ALL')
-
   /* ---------- Venue editor ---------- */
   const ed = $<HTMLCanvasElement>('editor')
   let E: { g: CanvasRenderingContext2D, W: number, H: number }
@@ -469,8 +425,9 @@ export function mountLanding(): () => void {
   /* ---------- Gig posters: follow the cursor, ripple with its speed, halftone into the next ---------- */
   async function posterGL() {
     if (reduce || !matchMedia('(hover:hover) and (pointer:fine)').matches) return
-    const cv = $<HTMLCanvasElement>('posterGL'), names = [...new Set(GIGS.map(g => g.poster))]
-    const imgs = await Promise.all(names.map(p => load(`${ASSETS}${p}.webp`)))
+    // Each gig's data-poster is its category's artwork.
+    const cv = $<HTMLCanvasElement>('posterGL'), names = [...new Set(Object.values(categoryArt))]
+    const imgs = await Promise.all(names.map(load))
     if (!alive) return
     const L = glLayer(cv, POSTER_FS), unit: Record<string, number> = {}
     names.forEach((p, i) => { unit[p] = i; L.tex(imgs[i], i) })

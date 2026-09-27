@@ -1,12 +1,18 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router'
+import { useCities } from '@/api/cities.ts'
 import { useSession } from '@/auth/session.ts'
 import { mountLanding } from './mountLanding.ts'
+import { GigGuide } from './GigGuide.tsx'
+import { useLandingCity } from './landingCity.ts'
 import { SearchForm } from './SearchForm.tsx'
+import { Tonight } from './Tonight.tsx'
 import './landing.css'
 
 function Landing() {
   const session = useSession()
+  const cities = useCities()
+  const city = useLandingCity(cities.data)
   useEffect(() => mountLanding(), [])
 
   return (
@@ -42,19 +48,14 @@ function Landing() {
               <h1>Be in<span className="l2">the room.</span></h1>
               <div className="hero-row">
                 <p>Pick your exact seat, see the stage from it, and book the whole group side by side.</p>
-                <SearchForm />
+                <SearchForm cities={cities.data} city={city.city} onCityChange={city.choose} />
               </div>
             </div>
           </div>
         </div>
         <div className="in">
         </div>
-        <div className="tonight">
-          <div className="in">
-            <span className="label" id="tonightLabel">Tonight in Mumbai</span>
-            <ul id="tonightList"></ul>
-          </div>
-        </div>
+        <Tonight city={city.tonight} cities={cities} />
       </div>
 
       <section className="demo" id="view">
@@ -118,21 +119,7 @@ function Landing() {
         </div>
       </section>
 
-      <section className="guide" id="guide">
-        <div className="in">
-          <div className="guide-head">
-            <h2>What&apos;s on</h2>
-            <div className="tabs label" role="group" aria-label="Filter by type">
-              <button aria-pressed="true" data-cat="ALL">All</button>
-              <button aria-pressed="false" data-cat="MUSIC">Music</button>
-              <button aria-pressed="false" data-cat="COMEDY">Comedy</button>
-              <button aria-pressed="false" data-cat="THEATRE">Theatre</button>
-              <button aria-pressed="false" data-cat="SPORTS">Sport</button>
-            </div>
-          </div>
-          <div id="gigs"></div>
-        </div>
-      </section>
+      <GigGuide />
 
       <section className="host" id="host">
         <div className="in host-grid">

@@ -35,14 +35,16 @@ export function useEvent(id: string | undefined) {
   })
 }
 
-// A page of published Events, the same for everyone. The last page stays up while the next loads.
-export function useEventSearch(query: EventSearchQuery) {
+// A page of published Events, the same for everyone; none is fetched until there's a query.
+// The last page stays up while the next loads.
+export function useEventSearch(query: EventSearchQuery | undefined) {
   return useQuery({
     queryKey: ['events', query],
+    enabled: !!query,
     placeholderData: keepPreviousData,
     queryFn: async () => {
       // A failure rejects with an ApiError, so data is there.
-      const { data } = await api.GET('/api/v1/events', { params: { query } })
+      const { data } = await api.GET('/api/v1/events', { params: { query: query! } })
       return data!
     },
   })
