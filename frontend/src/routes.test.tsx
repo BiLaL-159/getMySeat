@@ -8,6 +8,11 @@ import { holdSessionRestore } from '@/test/sessionRestore.ts'
 vi.mock('react-oidc-context', () => import('@/test/fakeAuth.ts'))
 // The landing's imperative layer needs WebGL and layout, which jsdom lacks.
 vi.mock('./landing/mountLanding.ts', () => ({ mountLanding: () => () => {} }))
+// The landing's search asks for its cities; these tests don't need any.
+vi.mock('@/api/api.ts', async () => {
+  const { createApiClient } = await import('@/api/client.ts')
+  return { api: createApiClient({ baseUrl: 'http://api.test', getAccessToken: () => undefined, fetch: async () => Response.json([]) }) }
+})
 
 beforeEach(resetAuth)
 

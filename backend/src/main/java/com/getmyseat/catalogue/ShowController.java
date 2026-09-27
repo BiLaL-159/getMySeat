@@ -127,4 +127,12 @@ class ShowController {
 		return this.service.visible(id, caller);
 	}
 
+	@GetMapping("/api/v1/cities")
+	@SecurityRequirements
+	@Operation(summary = "The cities with an upcoming published Show, sorted",
+			description = "Public. Each city once, ignoring case, for searching Events by city.")
+	List<String> cities() {
+		return this.service.cities();
+	}
+
 }

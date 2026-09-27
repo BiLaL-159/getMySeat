@@ -120,6 +120,12 @@ class ShowService {
 		return page.map(show -> ShowSummary.of(show, venues.get(show.venueId())));
 	}
 
+	/** The cities of upcoming published Shows, for Customers to search by. */
+	@Transactional(readOnly = true)
+	List<String> cities() {
+		return this.shows.citiesWithShowsAfter(Instant.now(), Show.Status.PUBLISHED, Event.Status.PUBLISHED);
+	}
+
 	/** A published Show for anyone, even once it has started; its owner also sees it as a draft. */
 	@Transactional(readOnly = true)
 	ShowDetail visible(UUID id, Optional<Caller> caller) {

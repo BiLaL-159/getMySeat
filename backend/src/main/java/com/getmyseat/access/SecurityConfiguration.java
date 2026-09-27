@@ -72,7 +72,7 @@ class SecurityConfiguration implements WebMvcConfigurer {
 				.authenticated()
 				.requestMatchers(HttpMethod.GET, "/api/v1/venues", "/api/v1/venues/*", "/api/v1/events",
 						"/api/v1/events/*", "/api/v1/events/*/shows", "/api/v1/shows/*",
-						"/api/v1/shows/*/availability")
+						"/api/v1/shows/*/availability", "/api/v1/cities")
 				.permitAll()
 				.anyRequest()
 				.authenticated())
