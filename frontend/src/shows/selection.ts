@@ -51,10 +51,11 @@ export function setGeneralAdmission(selection: Selection, sectionId: string, qua
 }
 
 // The selection after availability changes: Seats someone else took drop out, and General
-// Admission quantities come down to the places left. Unchanged, it's the same object.
-export function pruneSelection(selection: Selection, sections: MapSection[]): Selection {
+// Admission quantities come down to the places left. Seats in the visitor's own Hold (`mine`) are
+// theirs, not taken, so they stay. Unchanged, it's the same object.
+export function pruneSelection(selection: Selection, sections: MapSection[], mine: ReadonlySet<string> = new Set()): Selection {
   const available = availableSeatIds(sections)
-  const seats = selection.seats.filter((id) => available.has(id))
+  const seats = selection.seats.filter((id) => available.has(id) || mine.has(id))
   const generalAdmission: Record<string, number> = {}
   for (const [sectionId, quantity] of Object.entries(selection.generalAdmission)) {
     const fits = Math.min(quantity, placesLeft(sections, sectionId))

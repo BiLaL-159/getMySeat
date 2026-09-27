@@ -1,7 +1,7 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
-import { useCreateHold, useMyHold, type Hold } from '@/api/holds.ts'
+import { useCreateHold, useHoldExpired, useMyHold, useReleaseHold, type Hold, type Release } from '@/api/holds.ts'
 import { ApiError, isRace, type Lost } from '@/api/problem.ts'
 import { sectionKindLabels, useShow, useShowAvailability, type ShowDetail } from '@/api/shows.ts'
 import MessageCard from '@/app/MessageCard.tsx'
@@ -9,6 +9,8 @@ import { problemMessage } from '@/app/problemMessage.ts'
 import { useSession } from '@/auth/session.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
+import { cn } from '@/lib/utils.ts'
+import { countdown } from './countdown.ts'
 import { formatPrice, formatShowTime } from './format.ts'
 import { createAttemptKeys, describeLoss, holdRequest, withoutHeld } from './holding.ts'
 import { forgetKeptSelection, keepSelection, keptSelection } from './keptSelection.ts'
@@ -102,7 +104,10 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const availability = useShowAvailability(show.id!, { enabled: published, live: !started })
   const sections = useMemo(() => buildSeatMap(show.sections ?? [], availability.data), [show.sections, availability.data])
   const myHold = useMyHold(show.id!, { enabled: published })
-  const hold = myHold.data?.status === 'ACTIVE' ? myHold.data : undefined
+  // The visitor's last Hold here once it has ended, and how. The API may still answer with it for a
+  // moment after its time is up, but it's over.
+  const [endedHold, setEndedHold] = useState<{ hold: Hold; how: HoldEnding }>()
+  const hold = myHold.data?.status === 'ACTIVE' && myHold.data.id !== endedHold?.hold.id ? myHold.data : undefined
   const myHoldSeats = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
 
   // A selection kept while the visitor went to sign in comes back once, and is checked against the
@@ -114,11 +119,12 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const [selection, setSelection] = useState(kept ?? emptySelection)
   const [keptNote, setKeptNote] = useState<{ gone?: Lost } | undefined>(kept && {})
   // Whatever someone else took since the last look drops out of the selection. A kept selection
-  // has never been checked, so it's checked against whatever availability comes first.
+  // has never been checked, so it's checked against whatever availability comes first. Seats in the
+  // visitor's own Hold are theirs, not taken, so the check waits until it's known whether there is one.
   const [lastPrunedSections, setLastPrunedSections] = useState<MapSection[] | 'never'>(kept ? 'never' : sections)
-  if (lastPrunedSections !== sections && availability.data) {
+  if (lastPrunedSections !== sections && availability.data && !myHold.isLoading) {
     setLastPrunedSections(sections)
-    const pruned = pruneSelection(selection, sections)
+    const pruned = pruneSelection(selection, sections, myHoldSeats)
     setSelection(pruned)
     if (lastPrunedSections === 'never') setKeptNote({ gone: goneFrom(selection, pruned, sections) })
   }
@@ -130,12 +136,15 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const session = useSession()
   const location = useLocation()
   const createHold = useCreateHold(show.id!)
+  const releaseHold = useReleaseHold(show.id!)
   const [attemptKeys] = useState(() => createAttemptKeys())
   // What the last Hold attempt lost to someone else, until the next attempt, with when availability
   // was last answered at the time.
   const [lost, setLost] = useState<{ gone: Lost; seenAt: number }>()
   // The last attempt brought back, under its key, a Hold that had already ended.
   const [ended, setEnded] = useState(false)
+  // The Hold that took the place of the visitor's earlier one, when the last attempt made one.
+  const [replacedBy, setReplacedBy] = useState<string>()
   const lostSeats = useMemo(() => {
     // A lost Seat that a newer answer says is free again can be picked again.
     const newer = lost?.seenAt !== availability.dataUpdatedAt
@@ -159,6 +168,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
     }
     const request = holdRequest(selection)
     const seenAt = availability.dataUpdatedAt
+    const previous = hold?.id
     setLost(undefined)
     setEnded(false)
     setKeptNote(undefined)
@@ -167,8 +177,14 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
       {
         onSuccess: (made) => {
           attemptKeys.forget()
-          if (made.status === 'ACTIVE') setSelection((picked) => withoutHeld(picked, request))
-          else setEnded(true)
+          if (made.status !== 'ACTIVE') {
+            setEnded(true)
+            return
+          }
+          setSelection((picked) => withoutHeld(picked, request))
+          setEndedHold(undefined)
+          setReplacedBy(previous && previous !== made.id ? made.id : undefined)
+          releaseHold.reset()
         },
         onError: (error) => {
           if (!(error instanceof ApiError)) return
@@ -182,6 +198,14 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
         },
       },
     )
+  }
+
+  const holdExpired = useHoldExpired(show.id!)
+  const onRelease = (releasing: Hold) =>
+    releaseHold.mutate(releasing.id!, { onSuccess: (how) => setEndedHold({ hold: releasing, how }) })
+  const onExpired = (expiring: Hold) => {
+    setEndedHold({ hold: expiring, how: 'expired' })
+    void holdExpired()
   }
 
   let status
@@ -241,12 +265,25 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
       {myHold.isError && (
         <p role="alert" className="text-destructive">We couldn&apos;t check for a Hold of yours. {problemMessage(myHold.error)}</p>
       )}
-      {hold && <HoldPanel hold={hold} show={show} />}
+      {hold ? (
+        <HoldPanel
+          hold={hold}
+          show={show}
+          replaced={replacedBy === hold.id}
+          releasing={releaseHold.isPending}
+          releaseError={releaseHold.isError && releaseHold.variables === hold.id ? releaseHold.error : undefined}
+          onRelease={() => onRelease(hold)}
+          onExpired={() => onExpired(hold)}
+        />
+      ) : (
+        endedHold && <HoldPanel hold={endedHold.hold} show={show} ended={endedHold.how} />
+      )}
       {onSale && (
         <SelectionSummary
           selection={selection}
           sections={sections}
           show={show}
+          replacing={!!hold}
           holding={createHold.isPending}
           outcome={holdOutcome}
           onHold={onHold}
@@ -281,6 +318,7 @@ function SelectionSummary({
   selection,
   sections,
   show,
+  replacing,
   holding,
   outcome,
   onHold,
@@ -288,11 +326,15 @@ function SelectionSummary({
   selection: Selection
   sections: MapSection[]
   show: ShowDetail
+  // Whether the visitor has an active Hold here, which holding this selection would replace.
+  replacing: boolean
   holding: boolean
   outcome: ReactNode
   onHold: () => void
 }) {
   const headingId = useId()
+  const replaceNoteId = useId()
+  const willReplace = replacing && ticketCount(selection) > 0
   const pricesPaise = useMemo(
     () => Object.fromEntries((show.sections ?? []).map((section) => [section.id!, section.price?.amountPaise ?? 0])),
     [show.sections],
@@ -330,15 +372,51 @@ function SelectionSummary({
         {isFull(selection) && `That's the limit of ${maxTickets} tickets. Let one go to pick another.`}
       </p>
       {outcome}
-      <Button disabled={ticketCount(selection) === 0 || holding} onClick={onHold} className="self-end">
+      {willReplace && (
+        <p id={replaceNoteId} className="font-mono text-sm">Holding these will replace your current Hold.</p>
+      )}
+      <Button
+        disabled={ticketCount(selection) === 0 || holding}
+        onClick={onHold}
+        aria-describedby={willReplace ? replaceNoteId : undefined}
+        className="self-end"
+      >
         {holding ? 'Holding…' : 'Hold'}
       </Button>
     </section>
   )
 }
 
-// The visitor's Hold: what's in it, what it costs, and (once payments arrive) the way to pay.
-function HoldPanel({ hold, show }: { hold: Hold; show: ShowDetail }) {
+// How a Hold ended: its time ran out, the visitor released it, or it had already ended when they tried.
+type HoldEnding = 'expired' | Release
+
+const holdEndings: Record<HoldEnding, string> = {
+  expired: 'This Hold has expired, so these tickets are no longer held for you.',
+  released: 'You released this Hold, so these tickets are back on sale.',
+  'already-ended': 'This Hold had already ended, so there was nothing to release.',
+}
+
+// The visitor's Hold: what's in it, what it costs, how long it lasts, and the ways to let it go or
+// (once payments arrive) pay. An `ended` Hold says how it ended instead.
+function HoldPanel({
+  hold,
+  show,
+  ended,
+  replaced = false,
+  releasing = false,
+  releaseError,
+  onRelease,
+  onExpired,
+}: {
+  hold: Hold
+  show: ShowDetail
+  ended?: HoldEnding
+  replaced?: boolean
+  releasing?: boolean
+  releaseError?: unknown
+  onRelease?: () => void
+  onExpired?: () => void
+}) {
   const headingId = useId()
   const payNoteId = useId()
   const sectionNames = useMemo(
@@ -347,9 +425,17 @@ function HoldPanel({ hold, show }: { hold: Hold; show: ShowDetail }) {
   )
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-4 rounded-md border-2 border-violet p-4">
+    <section aria-labelledby={headingId} className={cn('flex flex-col gap-4 rounded-md border-2 p-4', ended ? 'border-border' : 'border-violet')}>
       <h2 id={headingId} className="font-display text-2xl font-black uppercase">Your Hold</h2>
-      <ul className="divide-y">
+      {ended ? (
+        <p role="status" className="font-mono text-sm">{holdEndings[ended]}</p>
+      ) : (
+        <>
+          {replaced && <p className="font-mono text-sm">This Hold replaced your earlier one.</p>}
+          <HoldCountdown endsAt={hold.endsAt} onOver={() => onExpired?.()} />
+        </>
+      )}
+      <ul className={cn('divide-y', ended && 'text-muted-foreground')}>
         {hold.items?.map((item) => {
           const quantity = item.quantity ?? 1
           const pricePaise = item.pricePaise ?? 0
@@ -367,15 +453,53 @@ function HoldPanel({ hold, show }: { hold: Hold; show: ShowDetail }) {
           )
         })}
       </ul>
-      <p className="flex items-baseline justify-between font-mono text-lg">
+      <p className={cn('flex items-baseline justify-between font-mono text-lg', ended && 'text-muted-foreground')}>
         <span>Total</span>
         <strong>{formatPrice(hold.totalPaise ?? 0)}</strong>
       </p>
-      <div className="flex items-center justify-end gap-3">
-        <span id={payNoteId} className="font-mono text-sm text-muted-foreground">Payments arrive soon</span>
-        <Button disabled aria-describedby={payNoteId}>Pay</Button>
-      </div>
+      {!ended && (
+        <>
+          {releaseError != null && (
+            <p role="alert" className="text-destructive">We couldn&apos;t release your Hold. {problemMessage(releaseError)}</p>
+          )}
+          <div className="flex items-center justify-end gap-3">
+            <Button variant="outline" disabled={releasing} onClick={onRelease} className="mr-auto">
+              {releasing ? 'Releasing…' : 'Release'}
+            </Button>
+            <span id={payNoteId} className="font-mono text-sm text-muted-foreground">Payments arrive soon</span>
+            <Button disabled aria-describedby={payNoteId}>Pay</Button>
+          </div>
+        </>
+      )}
     </section>
+  )
+}
+
+// How long a Hold has left, ticking each second, with a warning in its last minute. `onOver` is
+// called once time is up.
+function HoldCountdown({ endsAt, onOver }: { endsAt: number; onOver: () => void }) {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(tick)
+  }, [])
+  const { text, lastMinute, over } = countdown(endsAt - now)
+  const reachedZero = useEffectEvent(onOver)
+  useEffect(() => {
+    if (over) reachedZero()
+  }, [over])
+
+  return (
+    <div className={cn('flex flex-col gap-1 rounded-md px-3 py-2 font-mono', lastMinute ? 'bg-destructive/10 text-destructive' : 'bg-muted')}>
+      <p className="flex items-baseline justify-between gap-4">
+        <span>Held for you for</span>
+        <span role="timer" className={cn('text-2xl font-bold tabular-nums', lastMinute && 'animate-pulse')}>{text}</span>
+      </p>
+      {/* Always there, so a screen reader hears the warning when it comes. */}
+      <p role="status" className="text-sm font-bold empty:hidden">
+        {lastMinute && 'Under a minute left before these tickets go back on sale.'}
+      </p>
+    </div>
   )
 }
 

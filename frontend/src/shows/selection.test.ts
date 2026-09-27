@@ -107,6 +107,13 @@ describe('pruneSelection', () => {
 
     expect(pruneSelection(picked, sections())).toBe(picked)
   })
+
+  it('keeps a selected Seat held in the visitor’s own Hold', () => {
+    const picked = pickSeats(emptySelection, ['a1', 'a2'])
+
+    expect(pruneSelection(picked, sections({ states: { a1: 'held', a2: 'held' } }), new Set(['a1'])).seats).toEqual(['a1'])
+    expect(pruneSelection(picked, sections({ states: { a1: 'held' } }), new Set(['a1']))).toBe(picked)
+  })
 })
 
 describe('summarizeSelection', () => {

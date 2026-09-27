@@ -95,7 +95,8 @@ class SecurityConfiguration implements WebMvcConfigurer {
 		cors.setAllowedOrigins(properties.allowedOrigins());
 		cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
 		cors.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE, "Idempotency-Key"));
-		cors.setExposedHeaders(List.of(HttpHeaders.LOCATION));
+		// Date, so the SPA can tell how far its clock is from the API's, say to count down to when a Hold expires.
+		cors.setExposedHeaders(List.of(HttpHeaders.LOCATION, HttpHeaders.DATE));
 		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 		source.registerCorsConfiguration("/**", cors);
 		return source;
