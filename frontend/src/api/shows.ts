@@ -8,7 +8,7 @@ export type SectionDetail = components['schemas']['SectionDetail']
 export type ShowAvailability = components['schemas']['ShowAvailability']
 
 // How often a Show page asks what's left, until live updates arrive.
-export const availabilityRefreshMs = 15_000
+const availabilityRefreshMs = 15_000
 
 export const sectionKindLabels: Record<NonNullable<SectionDetail['kind']>, string> = {
   SEATED: 'Seated',

@@ -40,9 +40,9 @@ describe('buildSeatMap', () => {
         },
       ],
     }
-    const [ga, seated] = buildSeatMap([floor, balcony], availability)
+    const [generalAdmission, seated] = buildSeatMap([floor, balcony], availability)
 
-    expect(ga).toMatchObject({ kind: 'GENERAL_ADMISSION', capacity: 200, available: 37 })
+    expect(generalAdmission).toMatchObject({ kind: 'GENERAL_ADMISSION', capacity: 200, available: 37 })
     if (seated.kind !== 'SEATED') throw new Error('expected a Seated Section')
     const states = Object.fromEntries(seated.rows.flatMap((row) => row.seats.map((s) => [s.id, s.state])))
     // A Seat the availability doesn't mention is unknown, not assumed free.
@@ -50,9 +50,9 @@ describe('buildSeatMap', () => {
   })
 
   it('leaves every Seat and place unknown while there is no availability', () => {
-    const [ga, seated] = buildSeatMap([floor, balcony], undefined)
+    const [generalAdmission, seated] = buildSeatMap([floor, balcony], undefined)
 
-    expect(ga).toMatchObject({ kind: 'GENERAL_ADMISSION', capacity: 200, available: undefined })
+    expect(generalAdmission).toMatchObject({ kind: 'GENERAL_ADMISSION', capacity: 200, available: undefined })
     if (seated.kind !== 'SEATED') throw new Error('expected a Seated Section')
     expect(seated.rows.flatMap((row) => row.seats).every((s) => s.state === 'unknown')).toBe(true)
   })

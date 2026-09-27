@@ -2,6 +2,7 @@ import { useId, type ReactNode } from 'react'
 import { cn } from '@/lib/utils.ts'
 import type { MapRow, MapSection, SeatState } from './seatMap.ts'
 
+// How a Seat reads to a screen reader, and in the key.
 const seatStateNames: Record<SeatState, string> = {
   available: 'available',
   held: 'held by someone else',
@@ -135,7 +136,7 @@ function Legend() {
           <svg width={14} height={14} aria-hidden className={seatStateClasses[state]}>
             <rect x={1} y={1} width={12} height={12} rx={3} strokeWidth={1.3} />
           </svg>
-          {state === 'available' ? 'Available' : 'Held by someone else'}
+          <span className="first-letter:uppercase">{seatStateNames[state]}</span>
         </li>
       ))}
     </ul>
