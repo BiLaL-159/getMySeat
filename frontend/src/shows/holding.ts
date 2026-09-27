@@ -1,12 +1,7 @@
-import { ApiError, isRetryable, type UnavailableSection } from '@/api/problem.ts'
-import type { components } from '@/api/schema'
+import type { HoldRequest } from '@/api/holds.ts'
+import type { Lost } from '@/api/problem.ts'
 import type { MapSection } from './seatMap.ts'
 import type { Selection } from './selection.ts'
-
-export type HoldRequest = components['schemas']['HoldRequest']
-
-// What an inventory-unavailable problem says is gone.
-export type Lost = { unavailableSeats: string[]; unavailableSections: UnavailableSection[] }
 
 // The selection as a Hold request, sorted so the same tickets always make the same request.
 export function holdRequest(selection: Selection): HoldRequest {
@@ -35,18 +30,6 @@ export function createAttemptKeys(newKey: () => string = () => crypto.randomUUID
   }
 }
 
-const maxHoldRetries = 3
-
-// Whether a failed Hold is worth sending again with the same key: nothing answered, the server
-// failed, or it lost a race with other Holds (a plain conflict, or inventory-unavailable naming
-// nothing). Anything actually gone won't come back by asking again.
-export function shouldRetryHold(failures: number, error: unknown) {
-  if (failures >= maxHoldRetries || !(error instanceof ApiError)) return false
-  const { problem } = error
-  if (problem.kind === 'inventory-unavailable') return problem.unavailableSeats.length === 0 && problem.unavailableSections.length === 0
-  return problem.kind === 'conflict' || isRetryable(error)
-}
-
 // What was lost, in map order, for telling the visitor.
 export function describeLoss({ unavailableSeats, unavailableSections }: Lost, sections: MapSection[]) {
   const lostSeats = new Set(unavailableSeats)
@@ -55,7 +38,7 @@ export function describeLoss({ unavailableSeats, unavailableSections }: Lost, se
   for (const section of sections) {
     if (section.kind === 'GENERAL_ADMISSION') {
       const left = placesLeft.get(section.id)
-      if (left != null) lines.push(`${section.name}: ${left === 0 ? 'sold out' : `only ${left} ${left === 1 ? 'place' : 'places'} left`}`)
+      if (left != null) lines.push(`${section.name}: ${placesLeftNote(left)}`)
       continue
     }
     for (const row of section.rows) {
@@ -65,4 +48,21 @@ export function describeLoss({ unavailableSeats, unavailableSections }: Lost, se
     }
   }
   return lines
+}
+
+// How many places a General Admission Section had left when a Hold fell short on it.
+export function placesLeftNote(left: number) {
+  return left === 0 ? 'sold out' : `only ${left} ${left === 1 ? 'place' : 'places'} left`
+}
+
+// The selection once a Hold has taken what it asked for. Anything picked while it was on its way stays.
+export function withoutHeld(selection: Selection, request: HoldRequest): Selection {
+  const held = new Set(request.seats)
+  const generalAdmission = { ...selection.generalAdmission }
+  for (const { sectionId, quantity } of request.generalAdmission ?? []) {
+    const left = (generalAdmission[sectionId] ?? 0) - quantity
+    if (left > 0) generalAdmission[sectionId] = left
+    else delete generalAdmission[sectionId]
+  }
+  return { seats: selection.seats.filter((id) => !held.has(id)), generalAdmission }
 }

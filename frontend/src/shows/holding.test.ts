@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ApiError, type Problem } from '@/api/problem.ts'
-import { createAttemptKeys, describeLoss, holdRequest, shouldRetryHold } from './holding.ts'
+import { createAttemptKeys, describeLoss, holdRequest, withoutHeld } from './holding.ts'
 import type { MapSection } from './seatMap.ts'
 
 const sections: MapSection[] = [
@@ -63,33 +62,6 @@ describe('createAttemptKeys', () => {
   })
 })
 
-describe('shouldRetryHold', () => {
-  const error = (problem: Problem) => new ApiError(problem)
-
-  it.each([
-    ['a plain conflict', { kind: 'conflict', status: 409 }],
-    ['a network failure', { kind: 'unreachable' }],
-    ['a server failure', { kind: 'unknown', status: 500 }],
-    ['a race that names nothing lost', { kind: 'inventory-unavailable', status: 409, unavailableSeats: [], unavailableSections: [] }],
-  ] satisfies [string, Problem][])('retries %s', (_, problem) => {
-    expect(shouldRetryHold(0, error(problem))).toBe(true)
-  })
-
-  it.each([
-    ['lost Seats', { kind: 'inventory-unavailable', status: 409, unavailableSeats: ['a1'], unavailableSections: [] }],
-    ['a General Admission shortfall', { kind: 'inventory-unavailable', status: 409, unavailableSeats: [], unavailableSections: [{ sectionId: 'floor', available: 1 }] }],
-    ['a bad request', { kind: 'validation', status: 400, fieldErrors: {} }],
-    ['a missing Show', { kind: 'not-found', status: 404 }],
-  ] satisfies [string, Problem][])('does not retry %s', (_, problem) => {
-    expect(shouldRetryHold(0, error(problem))).toBe(false)
-  })
-
-  it('gives up after three retries', () => {
-    expect(shouldRetryHold(2, error({ kind: 'conflict', status: 409 }))).toBe(true)
-    expect(shouldRetryHold(3, error({ kind: 'conflict', status: 409 }))).toBe(false)
-  })
-})
-
 describe('describeLoss', () => {
   it('names each lost Seat and each General Admission shortfall, in map order', () => {
     expect(
@@ -107,5 +79,17 @@ describe('describeLoss', () => {
     expect(describeLoss({ unavailableSeats: [], unavailableSections: [{ sectionId: 'floor', available: 3 }] }, sections)).toEqual([
       'Floor: only 3 places left',
     ])
+  })
+})
+
+describe('withoutHeld', () => {
+  it('takes out what was held, keeping anything picked since', () => {
+    const request = holdRequest({ seats: ['a1'], generalAdmission: { floor: 2 } })
+
+    expect(withoutHeld({ seats: ['a1', 'a2'], generalAdmission: { floor: 3, pit: 1 } }, request)).toEqual({
+      seats: ['a2'],
+      generalAdmission: { floor: 1, pit: 1 },
+    })
+    expect(withoutHeld({ seats: ['a1'], generalAdmission: { floor: 2 } }, request)).toEqual({ seats: [], generalAdmission: {} })
   })
 })

@@ -29,11 +29,13 @@ export function useShow(id: string) {
   })
 }
 
+export const showAvailabilityKey = (id: string) => ['show-availability', id]
+
 // What's left to sell at a published Show, the same for everyone. While `live`, it's asked again
 // every so often; the last answer stays up meanwhile.
 export function useShowAvailability(id: string, { enabled, live }: { enabled: boolean; live: boolean }) {
   return useQuery({
-    queryKey: ['show-availability', id],
+    queryKey: showAvailabilityKey(id),
     enabled,
     refetchInterval: live ? availabilityRefreshMs : false,
     queryFn: async () => {

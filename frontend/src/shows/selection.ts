@@ -1,4 +1,4 @@
-import type { Lost } from './holding.ts'
+import type { Lost } from '@/api/problem.ts'
 import type { MapSection } from './seatMap.ts'
 
 // The most tickets one Hold can take, across Seats and General Admission.

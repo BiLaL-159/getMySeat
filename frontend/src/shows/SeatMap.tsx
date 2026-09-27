@@ -2,6 +2,7 @@ import { useId, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { MapRow, MapSeat, MapSection, SeatState } from './seatMap.ts'
+import { placesLeftNote } from './holding.ts'
 import type { Selection } from './selection.ts'
 
 // How a Seat looks: what availability says, unless the visitor has picked it, holds it, or just
@@ -34,33 +35,35 @@ const cell = 28
 const seatSize = 22
 
 // What a seat map needs to let a visitor pick tickets: what they've picked so far, whether that's
-// as many as they can take, the Seats they just lost to someone else, and what to do when they pick.
+// as many as they can take, what they just lost to someone else (Seats, and the places left in each
+// General Admission Section that fell short), and what to do when they pick.
 export type Picking = {
   selection: Selection
   full: boolean
   lostSeats: ReadonlySet<string>
+  lostSections: ReadonlyMap<string, number>
   onToggleSeat: (seatId: string) => void
   onSetGeneralAdmission: (sectionId: string, quantity: number) => void
 }
 
 // A seat map: a stage, then each Section in the order given. `status` says what's known about
-// availability, above the Sections. `mine` are the Seats in the visitor's Hold. Read-only, unless
+// availability, above the Sections. `myHoldSeats` are the Seats in the visitor's Hold. Read-only, unless
 // `picking` is given.
 function SeatMap({
   sections,
   status,
-  mine = noSeats,
+  myHoldSeats = noSeats,
   picking,
 }: {
   sections: MapSection[]
   status?: ReactNode
-  mine?: ReadonlySet<string>
+  myHoldSeats?: ReadonlySet<string>
   picking?: Picking
 }) {
   const looks: SeatLook[] = [
     'available',
     ...(picking ? (['selected'] as const) : []),
-    ...(mine.size > 0 ? (['mine'] as const) : []),
+    ...(myHoldSeats.size > 0 ? (['mine'] as const) : []),
     ...(picking?.lostSeats.size ? (['lost'] as const) : []),
     'held',
   ]
@@ -73,7 +76,7 @@ function SeatMap({
       <Legend looks={looks} />
       {sections.map((section) =>
         section.kind === 'SEATED' ? (
-          <SeatedSection key={section.id} name={section.name} rows={section.rows} mine={mine} picking={picking} />
+          <SeatedSection key={section.id} name={section.name} rows={section.rows} myHoldSeats={myHoldSeats} picking={picking} />
         ) : (
           <GeneralAdmissionSection key={section.id} {...section} picking={picking} />
         ),
@@ -92,7 +95,17 @@ function SectionFrame({ name, children }: { name: string; children: ReactNode })
   )
 }
 
-function SeatedSection({ name, rows, mine, picking }: { name: string; rows: MapRow[]; mine: ReadonlySet<string>; picking: Picking | undefined }) {
+function SeatedSection({
+  name,
+  rows,
+  myHoldSeats,
+  picking,
+}: {
+  name: string
+  rows: MapRow[]
+  myHoldSeats: ReadonlySet<string>
+  picking: Picking | undefined
+}) {
   if (rows.length === 0) {
     return (
       <SectionFrame name={name}>
@@ -121,7 +134,7 @@ function SeatedSection({ name, rows, mine, picking }: { name: string; rows: MapR
                     name={`${name}, row ${row.label}, seat ${seat.number}`}
                     x={left + s * cell}
                     y={y}
-                    mine={mine.has(seat.id)}
+                    mine={myHoldSeats.has(seat.id)}
                     picking={picking}
                   />
                 ))}
@@ -212,6 +225,7 @@ function GeneralAdmissionSection({
   picking: Picking | undefined
 }) {
   const quantity = picking?.selection.generalAdmission[id] ?? 0
+  const lostLeft = picking?.lostSections.get(id)
   return (
     <SectionFrame name={name}>
       <div className="flex w-full max-w-md flex-col items-center gap-3 rounded-md border border-dashed px-4 py-6 text-center font-mono">
@@ -220,6 +234,9 @@ function GeneralAdmissionSection({
           : available === 0
             ? <strong className="text-destructive">Sold out</strong>
             : `${available} of ${capacity} places left`}
+        {lostLeft != null && (
+          <p className="text-sm font-bold text-destructive">Someone else got there first: {placesLeftNote(lostLeft)}</p>
+        )}
         {picking && !!available && (
           <div className="flex items-center gap-3">
             <Button

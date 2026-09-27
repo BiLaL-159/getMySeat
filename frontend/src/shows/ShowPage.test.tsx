@@ -95,7 +95,7 @@ function hold(overrides: Record<string, unknown> = {}) {
   }
 }
 
-const conflict = (type = 'conflict', extra: object = {}) =>
+const problemResponse = (type = 'conflict', extra: object = {}) =>
   Response.json({ type: `urn:getmyseat:problem:${type}`, status: 409, ...extra }, { status: 409 })
 
 const availabilityRequests = () => api.requests.filter((request) => new URL(request.url).pathname === availabilityPath)
@@ -498,7 +498,7 @@ describe('holding tickets', () => {
 
   it('retries a plain conflict on its own, with the same key', async () => {
     const user = userEvent.setup()
-    const answers = [conflict(), Response.json(hold(), { status: 201 })]
+    const answers = [problemResponse(), Response.json(hold(), { status: 201 })]
     api.responses[holdsPath] = () => answers.shift()!
     renderRoute('/shows/show-1')
 
@@ -530,8 +530,10 @@ describe('holding tickets', () => {
 
   it('marks only what was lost, keeps the rest, says what went, and asks what is left', async () => {
     const user = userEvent.setup()
-    api.responses[holdsPath] = () =>
-      conflict('inventory-unavailable', { unavailableSeats: ['a1'], unavailableSections: [{ sectionId: 's-1', available: 1 }] })
+    api.responses[holdsPath] = () => {
+      api.responses[availabilityPath] = () => Response.json(availability({ a1: false, floor: 1 }))
+      return problemResponse('inventory-unavailable', { unavailableSeats: ['a1'], unavailableSections: [{ sectionId: 's-1', available: 1 }] })
+    }
     renderRoute('/shows/show-1')
 
     await pickA1AndTwoFloor(user)
@@ -553,6 +555,102 @@ describe('holding tickets', () => {
     expect(screen.getByRole('checkbox', { name: /row B, seat 1, selected/ })).toBeChecked()
     expect(within(screen.getByRole('group', { name: 'Floor' })).getByRole('status')).toHaveTextContent('1')
     await waitFor(() => expect(availabilityRequests().length).toBeGreaterThan(asked))
+  })
+
+  it('marks a General Admission shortfall on the map', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () => problemResponse('inventory-unavailable', { unavailableSeats: [], unavailableSections: [{ sectionId: 's-1', available: 1 }] })
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    const floor = screen.getByRole('group', { name: 'Floor' })
+    expect(await within(floor).findByText(/someone else got there first/i)).toHaveTextContent(/only 1 place left/i)
+    expect(screen.queryByText(/taken before you could hold it/i)).not.toBeInTheDocument()
+  })
+
+  it('lets a lost Seat be picked again once it is free', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[holdsPath] = () => {
+      api.responses[availabilityPath] = () => Response.json(availability({ a1: false }))
+      return problemResponse('inventory-unavailable', { unavailableSeats: ['a1'], unavailableSections: [] })
+    }
+    renderRoute('/shows/show-1')
+
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await screen.findByRole('checkbox', { name: /row A, seat 1, taken before you could hold it/ })
+
+    api.responses[availabilityPath] = () => Response.json(availability({ a1: true }))
+    await act(() => vi.advanceTimersByTimeAsync(15_000))
+
+    const seat = await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })
+    await user.click(seat)
+    expect(seat).toBeChecked()
+  })
+
+  it('does not say something was lost when a race keeps failing', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () => problemResponse('inventory-unavailable', { unavailableSeats: [], unavailableSections: [] })
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    expect(await within(summary()).findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent(/couldn.t hold these tickets/i)
+    expect(holdRequests()).toHaveLength(4)
+    expect(screen.queryByText(/someone else got there first/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /row A, seat 1, selected/ })).toBeChecked()
+  })
+
+  it('does not retry a key used for other tickets, and tries again with a new one', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () => problemResponse('idempotency-key-reused')
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await within(summary()).findByRole('alert')
+    expect(holdRequests()).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await waitFor(() => expect(keysSent()).toHaveLength(2))
+    expect(keysSent()[1]).not.toBe(keysSent()[0])
+  })
+
+  it('keeps the selection, and says so, when the key brings back a Hold that has ended', async () => {
+    const user = userEvent.setup()
+    api.responses[holdsPath] = () => Response.json(hold({ status: 'RELEASED' }), { status: 201 })
+    renderRoute('/shows/show-1')
+
+    await pickA1AndTwoFloor(user)
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    expect(await within(summary()).findByRole('alert')).toHaveTextContent(/has already ended/i)
+    expect(screen.queryByRole('region', { name: /your hold/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /row A, seat 1, selected/ })).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await waitFor(() => expect(keysSent()).toHaveLength(2))
+    expect(keysSent()[1]).not.toBe(keysSent()[0])
+  })
+
+  it('keeps picks made while the Hold was on its way', async () => {
+    const user = userEvent.setup()
+    let answer!: (response: Response) => void
+    api.responses[holdsPath] = () => new Promise<Response>((resolve) => (answer = resolve))
+    renderRoute('/shows/show-1')
+
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    await waitFor(() => expect(holdRequests()).toHaveLength(1))
+    await user.click(screen.getByRole('checkbox', { name: /row B, seat 1, available/ }))
+    answer(Response.json(hold({ items: [hold().items[1]], totalPaise: 149950 }), { status: 201 }))
+
+    await screen.findByRole('region', { name: /your hold/i })
+    expect(screen.getByRole('checkbox', { name: /row B, seat 1, selected/ })).toBeChecked()
   })
 
   it('brings the Hold back after a reload', async () => {

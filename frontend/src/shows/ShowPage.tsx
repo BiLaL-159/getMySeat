@@ -2,7 +2,7 @@ import { useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { useEvent } from '@/api/events.ts'
 import { useCreateHold, useMyHold, type Hold } from '@/api/holds.ts'
-import { ApiError } from '@/api/problem.ts'
+import { ApiError, isRace, type Lost } from '@/api/problem.ts'
 import { sectionKindLabels, useShow, useShowAvailability, type ShowDetail } from '@/api/shows.ts'
 import MessageCard from '@/app/MessageCard.tsx'
 import { problemMessage } from '@/app/problemMessage.ts'
@@ -10,7 +10,7 @@ import { useSession } from '@/auth/session.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { formatPrice, formatShowTime } from './format.ts'
-import { createAttemptKeys, describeLoss, holdRequest, type Lost } from './holding.ts'
+import { createAttemptKeys, describeLoss, holdRequest, withoutHeld } from './holding.ts'
 import SeatMap from './SeatMap.tsx'
 import { buildSeatMap, type MapSection } from './seatMap.ts'
 import {
@@ -101,7 +101,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const sections = useMemo(() => buildSeatMap(show.sections ?? [], availability.data), [show.sections, availability.data])
   const myHold = useMyHold(show.id!, { enabled: published })
   const hold = myHold.data?.status === 'ACTIVE' ? myHold.data : undefined
-  const mine = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
+  const myHoldSeats = useMemo(() => new Set(hold?.items?.flatMap((item) => (item.seatId ? [item.seatId] : []))), [hold])
 
   const [selection, setSelection] = useState(emptySelection)
   // Whatever someone else took since the last look drops out of the selection.
@@ -114,10 +114,26 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
   const session = useSession()
   const location = useLocation()
   const createHold = useCreateHold(show.id!)
-  const [keys] = useState(() => createAttemptKeys())
-  // What the last Hold attempt lost to someone else, until the next attempt.
-  const [lost, setLost] = useState<Lost>()
-  const lostSeats = useMemo(() => new Set(lost?.unavailableSeats), [lost])
+  const [attemptKeys] = useState(() => createAttemptKeys())
+  // What the last Hold attempt lost to someone else, until the next attempt, with when availability
+  // was last answered at the time.
+  const [lost, setLost] = useState<{ gone: Lost; seenAt: number }>()
+  // The last attempt brought back, under its key, a Hold that had already ended.
+  const [ended, setEnded] = useState(false)
+  const lostSeats = useMemo(() => {
+    // A lost Seat that a newer answer says is free again can be picked again.
+    const newer = lost?.seenAt !== availability.dataUpdatedAt
+    const free = new Set(
+      sections.flatMap((section) =>
+        section.kind === 'SEATED' ? section.rows.flatMap((row) => row.seats.filter((seat) => seat.state === 'available').map((seat) => seat.id)) : [],
+      ),
+    )
+    return new Set(lost?.gone.unavailableSeats.filter((id) => !(newer && free.has(id))))
+  }, [lost, sections, availability.dataUpdatedAt])
+  const lostSections = useMemo(
+    () => new Map(lost?.gone.unavailableSections.map(({ sectionId, available }) => [sectionId, available])),
+    [lost],
+  )
 
   const onHold = () => {
     if (session.status !== 'signedIn') {
@@ -125,19 +141,25 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
       return
     }
     const request = holdRequest(selection)
+    const seenAt = availability.dataUpdatedAt
     setLost(undefined)
+    setEnded(false)
     createHold.mutate(
-      { request, key: keys.keyFor(request) },
+      { request, key: attemptKeys.keyFor(request) },
       {
-        onSuccess: () => {
-          keys.forget()
-          setSelection(emptySelection)
+        onSuccess: (made) => {
+          attemptKeys.forget()
+          if (made.status === 'ACTIVE') setSelection((picked) => withoutHeld(picked, request))
+          else setEnded(true)
         },
         onError: (error) => {
-          if (!(error instanceof ApiError) || error.problem.kind !== 'inventory-unavailable') return
-          const { unavailableSeats, unavailableSections } = error.problem
-          const gone = { unavailableSeats, unavailableSections }
-          setLost(gone)
+          if (!(error instanceof ApiError)) return
+          const { problem } = error
+          // That key went with other tickets, so the next attempt needs a new one.
+          if (problem.kind === 'idempotency-key-reused') attemptKeys.forget()
+          if (problem.kind !== 'inventory-unavailable' || isRace(problem)) return
+          const gone = { unavailableSeats: problem.unavailableSeats, unavailableSections: problem.unavailableSections }
+          setLost({ gone, seenAt })
           setSelection((picked) => dropLost(picked, gone))
         },
       },
@@ -166,6 +188,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
         selection,
         full: isFull(selection),
         lostSeats,
+        lostSections,
         onToggleSeat: (seatId: string) => setSelection((picked) => toggleSeat(picked, seatId, sections)),
         onSetGeneralAdmission: (sectionId: string, quantity: number) =>
           setSelection((picked) => setGeneralAdmission(picked, sectionId, quantity, sections)),
@@ -178,9 +201,15 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
       <div role="alert" className="flex flex-col gap-1 text-destructive">
         <p>Someone else got there first, so nothing was held. We kept the rest of your selection, ready to try again.</p>
         <ul className="list-inside list-disc font-mono text-sm">
-          {describeLoss(lost, sections).map((line) => <li key={line}>{line}</li>)}
+          {describeLoss(lost.gone, sections).map((line) => <li key={line}>{line}</li>)}
         </ul>
       </div>
+    )
+  } else if (ended) {
+    holdOutcome = (
+      <p role="alert" className="text-destructive">
+        Your earlier Hold on these tickets has already ended, so nothing is held now. Hold them again to try once more.
+      </p>
     )
   } else if (createHold.isError) {
     holdOutcome = <p role="alert" className="text-destructive">We couldn&apos;t hold these tickets. {problemMessage(createHold.error)}</p>
@@ -188,7 +217,7 @@ function ShowSeatMap({ show, started }: { show: ShowDetail; started: boolean }) 
 
   return (
     <div className="mt-8 flex flex-col gap-8">
-      <SeatMap sections={sections} status={status} mine={mine} picking={picking} />
+      <SeatMap sections={sections} status={status} myHoldSeats={myHoldSeats} picking={picking} />
       {myHold.isError && (
         <p role="alert" className="text-destructive">We couldn&apos;t check for a Hold of yours. {problemMessage(myHold.error)}</p>
       )}

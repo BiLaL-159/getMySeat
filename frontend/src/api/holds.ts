@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from 'react-oidc-context'
-import { shouldRetryHold, type HoldRequest } from '@/shows/holding.ts'
 import { api } from './api.ts'
-import { ApiError } from './problem.ts'
+import { ApiError, shouldRetryHold } from './problem.ts'
+import { showAvailabilityKey } from './shows.ts'
 import type { components } from './schema'
 
 export type Hold = components['schemas']['HoldResponse']
-export type HoldItem = components['schemas']['HoldItemResponse']
+export type HoldRequest = components['schemas']['HoldRequest']
 
 const myHoldKey = (showId: string, subject: string | undefined) => ['my-hold', showId, subject]
 
@@ -46,6 +46,6 @@ export function useCreateHold(showId: string) {
     retry: shouldRetryHold,
     retryDelay: (failures) => 250 * 2 ** failures,
     onSuccess: (hold) => queryClient.setQueryData(myHoldKey(showId, auth.user?.profile.sub), hold),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['show-availability', showId] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: showAvailabilityKey(showId) }),
   })
 }
