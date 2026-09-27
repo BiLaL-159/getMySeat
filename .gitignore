@@ -1,6 +1,7 @@
 # Private planning docs — never commit
 CONTEXT.md
 docs/PLAN.md
+docs/FRONTEND-PLAN.md
 docs/adr/
 
 # Build output
