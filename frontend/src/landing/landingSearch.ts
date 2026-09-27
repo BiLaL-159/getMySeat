@@ -12,12 +12,12 @@ export const whenLabels: Record<When, string> = {
 export type LandingSearch = { q: string; city: string; when: When }
 
 // A local date written as YYYY-MM-DD, the only form the API takes.
-function isoDate(date: Date) {
+export function isoDate(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-function plusDays(date: Date, days: number) {
+export function plusDays(date: Date, days: number) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
 }
 
