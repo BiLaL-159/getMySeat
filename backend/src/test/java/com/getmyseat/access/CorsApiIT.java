@@ -63,7 +63,7 @@ class CorsApiIT {
 	}
 
 	@Test
-	void exposesTheLocationHeaderToTheSpa() {
+	void exposesTheLocationAndDateHeadersToTheSpa() {
 		client.get()
 			.uri("/api/v1/events")
 			.header(HttpHeaders.ORIGIN, SPA_ORIGIN)
@@ -73,7 +73,7 @@ class CorsApiIT {
 			.expectHeader()
 			.valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, SPA_ORIGIN)
 			.expectHeader()
-			.valueEquals(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, HttpHeaders.LOCATION);
+			.valueMatches(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, "(?i)(?=.*\\blocation\\b)(?=.*\\bdate\\b).*");
 	}
 
 }

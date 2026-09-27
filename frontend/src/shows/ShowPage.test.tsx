@@ -785,3 +785,167 @@ describe('signing in to hold', () => {
     expect(summaryLines()).toHaveLength(3)
   })
 })
+
+describe('ending a Hold', () => {
+  const releasePath = '/api/v1/holds/hold-1/release'
+  const releaseRequests = () => api.requests.filter((request) => new URL(request.url).pathname === releasePath)
+  const myHoldRequests = () => api.requests.filter((request) => new URL(request.url).pathname === myHoldPath)
+  const panel = () => screen.getByRole('region', { name: /your hold/i })
+  const summary = () => screen.getByRole('region', { name: /your selection/i })
+  // The API's clock, as its Date header tells it.
+  const apiDate = (iso: string) => ({ headers: { Date: new Date(iso).toUTCString() } })
+
+  beforeEach(() => {
+    setAuth(signedIn())
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    // This device's clock is two minutes ahead of the API's.
+    vi.setSystemTime(new Date('2099-10-03T13:02:00Z'))
+    api.responses[myHoldPath] = () => Response.json(hold(), apiDate('2099-10-03T13:00:00Z'))
+  })
+
+  it('counts down to when the Hold expires by the API’s clock, not this device’s', async () => {
+    renderRoute('/shows/show-1')
+
+    const timer = await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('timer')
+    expect(timer).toHaveTextContent('10:00')
+    await act(() => vi.advanceTimersByTimeAsync(65_000))
+    expect(timer).toHaveTextContent('8:55')
+    expect(within(panel()).queryByText(/under a minute left/i)).not.toBeInTheDocument()
+  })
+
+  it('says so in the last minute', async () => {
+    renderRoute('/shows/show-1')
+
+    const timer = await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('timer')
+    await act(() => vi.advanceTimersByTimeAsync(9 * 60_000 + 1_000))
+
+    expect(timer).toHaveTextContent('0:59')
+    expect(within(panel()).getByRole('status')).toHaveTextContent(/under a minute left/i)
+  })
+
+  it('shows the Hold as expired at zero, clears its Seats, and asks what is left', async () => {
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, in my Hold' })
+    const asked = availabilityRequests().length
+    const looked = myHoldRequests().length
+    // Reading the Hold past its expiry expires it on the API, which gives its Seats back.
+    api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+    api.responses[availabilityPath] = () => Response.json(availability({ a1: true }))
+    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+
+    expect(within(panel()).getByRole('status')).toHaveTextContent(/expired/i)
+    expect(within(panel()).queryByRole('timer')).not.toBeInTheDocument()
+    expect(within(panel()).queryByRole('button', { name: 'Pay' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })).toBeInTheDocument()
+    expect(myHoldRequests().length).toBeGreaterThan(looked)
+    expect(availabilityRequests().length).toBeGreaterThan(asked)
+  })
+
+  it('keeps showing the Hold as expired if the API still has it for a moment', async () => {
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, in my Hold' })
+    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+
+    expect(within(panel()).getByRole('status')).toHaveTextContent(/expired/i)
+    expect(screen.queryByRole('checkbox', { name: /in my Hold/ })).not.toBeInTheDocument()
+  })
+
+  it('releases the Hold, shows it as released, and asks what is left', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[releasePath] = () => {
+      api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+      api.responses[availabilityPath] = () => Response.json(availability({ a1: true }))
+      return Response.json(hold({ status: 'RELEASED' }))
+    }
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, in my Hold' })
+    const asked = availabilityRequests().length
+    await user.click(within(panel()).getByRole('button', { name: 'Release' }))
+
+    expect(await within(panel()).findByRole('status')).toHaveTextContent(/released/i)
+    expect(releaseRequests()).toHaveLength(1)
+    expect(releaseRequests()[0].method).toBe('POST')
+    expect(within(panel()).queryByRole('button', { name: 'Release' })).not.toBeInTheDocument()
+    expect(within(panel()).queryByRole('timer')).not.toBeInTheDocument()
+    expect(await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })).toBeInTheDocument()
+    expect(availabilityRequests().length).toBeGreaterThan(asked)
+  })
+
+  it('shows a Hold that had already ended as ended, not as an error, when releasing it is a 409', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[releasePath] = () => {
+      api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+      return problemResponse()
+    }
+    renderRoute('/shows/show-1')
+
+    await user.click(await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('button', { name: 'Release' }))
+
+    expect(await within(panel()).findByRole('status')).toHaveTextContent(/already ended/i)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /in my Hold/ })).not.toBeInTheDocument()
+  })
+
+  it('says it couldn’t release when the 409 leaves the Hold active, and lets the visitor try again', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[releasePath] = () => problemResponse()
+    renderRoute('/shows/show-1')
+
+    await user.click(await within(await screen.findByRole('region', { name: /your hold/i })).findByRole('button', { name: 'Release' }))
+
+    expect(await within(panel()).findByRole('alert')).toHaveTextContent(/couldn.t release/i)
+    expect(within(panel()).getByRole('timer')).toBeInTheDocument()
+    expect(within(panel()).getByRole('button', { name: 'Release' })).toBeEnabled()
+  })
+
+  it('says a new Hold replaces the current one, and then that it did', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[holdsPath] = () =>
+      Response.json(
+        hold({ id: 'hold-2', items: [{ kind: 'SEAT', sectionId: 's-2', seatId: 'b1', rowLabel: 'B', seatNumber: 1, quantity: 1, pricePaise: 149950 }], totalPaise: 149950 }),
+        { status: 201, ...apiDate('2099-10-03T13:00:00Z') },
+      )
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('region', { name: /your hold/i })
+    await user.click(await screen.findByRole('checkbox', { name: /row B, seat 1, available/ }))
+    expect(screen.getByRole('button', { name: 'Hold' })).toHaveAccessibleDescription(/replace your current Hold/i)
+
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+
+    expect(await within(panel()).findByText(/replaced your earlier one/i)).toBeInTheDocument()
+    expect(within(panel()).getByText(/total/i).parentElement).toHaveTextContent('₹1,499.50')
+    expect(await screen.findByRole('checkbox', { name: 'Balcony, row B, seat 1, in my Hold' })).toBeInTheDocument()
+    expect(screen.queryByText(/replace your current Hold/i)).not.toBeInTheDocument()
+    expect(within(summary()).queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('does not say a Hold will be replaced when there is none', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.responses[myHoldPath] = () => Response.json({ type: 'urn:getmyseat:problem:not-found', status: 404 }, { status: 404 })
+    renderRoute('/shows/show-1')
+
+    await user.click(await screen.findByRole('checkbox', { name: /row B, seat 1, available/ }))
+    await waitFor(() => expect(myHoldRequests()).toHaveLength(1))
+    expect(screen.queryByText(/replace your current Hold/i)).not.toBeInTheDocument()
+  })
+
+  it('counts Seats in the visitor’s own Hold as theirs when a kept selection comes back, and on every refresh', async () => {
+    keepSelection('show-1', { seats: ['a1', 'b1'], generalAdmission: {} })
+    api.responses[availabilityPath] = () => Response.json(availability({ a1: false }))
+    // The Hold answers after availability, so the selection has to wait for it.
+    api.responses[myHoldPath] = () => new Promise((resolve) => setTimeout(() => resolve(Response.json(hold(), apiDate('2099-10-03T13:00:00Z'))), 50))
+    renderRoute('/shows/show-1')
+
+    expect(await within(await screen.findByRole('region', { name: /your selection/i })).findByText(/kept the tickets you picked/i)).toBeInTheDocument()
+    expect(screen.queryByText(/went while you were away/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /row A, seat 1, selected/ })).toBeChecked()
+
+    await act(() => vi.advanceTimersByTimeAsync(15_000))
+    expect(screen.getByRole('checkbox', { name: /row A, seat 1, selected/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /row B, seat 1, selected/ })).toBeChecked()
+  })
+})

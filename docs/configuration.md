@@ -20,7 +20,7 @@ The backend is configured through environment variables. Every default points at
 
 ## Browser access
 
-The SPA is hosted separately and calls the API directly, so the backend answers CORS preflights before authentication. Browsers may send `Authorization`, `Content-Type` and `Idempotency-Key`, and may read `Location`.
+The SPA is hosted separately and calls the API directly, so the backend answers CORS preflights before authentication. Browsers may send `Authorization`, `Content-Type` and `Idempotency-Key`, and may read `Location` and `Date`, which tells the SPA the API's clock.
 
 | Variable | Default | Purpose |
 |---|---|---|
