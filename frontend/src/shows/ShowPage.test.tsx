@@ -198,8 +198,8 @@ describe('seat map', () => {
     renderRoute('/shows/show-1')
 
     const balcony = await screen.findByRole('group', { name: 'Balcony' })
-    await within(balcony).findByRole('img', { name: 'Balcony, row A, seat 1, available' })
-    expect(within(balcony).getAllByRole('img').map((seat) => seat.getAttribute('aria-label'))).toEqual([
+    await within(balcony).findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })
+    expect(within(balcony).getAllByRole('checkbox').map((seat) => seat.getAttribute('aria-label'))).toEqual([
       'Balcony, row A, seat 1, available',
       'Balcony, row A, seat 2, held by someone else',
       'Balcony, row B, seat 1, available',
@@ -210,12 +210,12 @@ describe('seat map', () => {
     const user = userEvent.setup()
     renderRoute('/shows/show-1')
 
-    const first = await screen.findByRole('img', { name: /row A, seat 1/ })
+    const first = await screen.findByRole('checkbox', { name: /row A, seat 1/ })
     first.focus()
     await user.tab()
-    expect(screen.getByRole('img', { name: /row A, seat 2/ })).toHaveFocus()
+    expect(screen.getByRole('checkbox', { name: /row A, seat 2/ })).toHaveFocus()
     await user.tab()
-    expect(screen.getByRole('img', { name: /row B, seat 1/ })).toHaveFocus()
+    expect(screen.getByRole('checkbox', { name: /row B, seat 1/ })).toHaveFocus()
   })
 
   it('shows how many General Admission places are left', async () => {
@@ -238,7 +238,7 @@ describe('seat map', () => {
     renderRoute('/shows/show-1')
 
     expect(await screen.findByText(/checking what.s left/i)).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Balcony, row A, seat 1, not known yet' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Balcony, row A, seat 1, not known yet' })).toBeInTheDocument()
   })
 
   it('keeps the rest of the Show page when availability fails', async () => {
@@ -248,14 +248,14 @@ describe('seat map', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t load what.s left/i)
     expect(screen.getByRole('heading', { level: 1, name: /indie night/i })).toBeInTheDocument()
     expect(screen.getByRole('list', { name: /sections/i })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Balcony, row A, seat 1, not known yet' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Balcony, row A, seat 1, not known yet' })).toBeInTheDocument()
   })
 
   it('refreshes availability every 15 seconds without losing its place', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     renderRoute('/shows/show-1')
 
-    const seat = await screen.findByRole('img', { name: 'Balcony, row A, seat 1, available' })
+    const seat = await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })
     seat.focus()
     expect(availabilityRequests()).toHaveLength(1)
 
@@ -272,12 +272,12 @@ describe('seat map', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     renderRoute('/shows/show-1')
 
-    await screen.findByRole('img', { name: 'Balcony, row A, seat 1, available' })
+    await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })
     api.responses[availabilityPath] = () => Response.json({ type: 'urn:getmyseat:problem:internal-error', status: 500 }, { status: 500 })
     await act(() => vi.advanceTimersByTimeAsync(15_000))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t refresh what.s left/i)
-    expect(screen.getByRole('img', { name: 'Balcony, row A, seat 1, available' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })).toBeInTheDocument()
   })
 
   it('stops refreshing, and says sales are over, once the Show has started', async () => {
@@ -298,5 +298,134 @@ describe('seat map', () => {
     expect(await screen.findByText(/once the show is published/i)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Balcony, row A, seat 1, not known yet' })).toBeInTheDocument()
     expect(availabilityRequests()).toHaveLength(0)
+  })
+})
+
+describe('selecting tickets', () => {
+  const summary = () => screen.getByRole('region', { name: /your selection/i })
+  const summaryLines = () => within(within(summary()).getByRole('list')).getAllByRole('listitem').map((line) => line.textContent)
+
+  it('selects an available Seat on a click, and lets it go on another', async () => {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+
+    const seat = await screen.findByRole('checkbox', { name: 'Balcony, row A, seat 1, available' })
+    await user.click(seat)
+    expect(seat).toBeChecked()
+    expect(seat).toHaveAccessibleName('Balcony, row A, seat 1, selected')
+
+    await user.click(seat)
+    expect(seat).not.toBeChecked()
+    expect(seat).toHaveAccessibleName('Balcony, row A, seat 1, available')
+  })
+
+  it('selects a Seat from the keyboard', async () => {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+
+    const seat = await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })
+    seat.focus()
+    await user.keyboard(' ')
+    expect(seat).toBeChecked()
+    await user.keyboard('{Enter}')
+    expect(seat).not.toBeChecked()
+  })
+
+  it('does not select a Seat held by someone else', async () => {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+
+    const held = await screen.findByRole('checkbox', { name: /row A, seat 2, held by someone else/ })
+    expect(held).toHaveAttribute('aria-disabled', 'true')
+    await user.click(held)
+    expect(held).not.toBeChecked()
+  })
+
+  it('steps General Admission places up to what is left', async () => {
+    const user = userEvent.setup()
+    api.responses[availabilityPath] = () => Response.json(availability({ floor: 2 }))
+    renderRoute('/shows/show-1')
+
+    const more = await screen.findByRole('button', { name: 'More Floor tickets' })
+    await user.click(more)
+    await user.click(more)
+    expect(within(screen.getByRole('group', { name: 'Floor' })).getByRole('status')).toHaveTextContent('2')
+    expect(more).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Fewer Floor tickets' }))
+    expect(within(screen.getByRole('group', { name: 'Floor' })).getByRole('status')).toHaveTextContent('1')
+  })
+
+  it('lists each pick with its Section Price, and the total in ₹', async () => {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+
+    await user.click(await screen.findByRole('checkbox', { name: /row B, seat 1, available/ }))
+    await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+    await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+
+    expect(summaryLines()).toEqual([
+      expect.stringMatching(/Floor.*General Admission × 2.*₹500 each.*₹1,000/),
+      expect.stringMatching(/Balcony.*Row B, seat 1.*₹1,499.50/),
+    ])
+    expect(within(summary()).getByText(/total/i).parentElement).toHaveTextContent('₹2,499.50')
+  })
+
+  it('enables Hold only once something is picked', async () => {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })
+    const hold = screen.getByRole('button', { name: 'Hold' })
+    expect(hold).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: /row A, seat 1/ }))
+    expect(hold).toBeEnabled()
+  })
+
+  it('stops at 10 tickets and says the limit is reached', async () => {
+    const user = userEvent.setup()
+    renderRoute('/shows/show-1')
+
+    const more = await screen.findByRole('button', { name: 'More Floor tickets' })
+    for (let i = 0; i < 10; i++) await user.click(more)
+    expect(more).toBeDisabled()
+    expect(within(summary()).getByText(/limit of 10 tickets/i)).toBeInTheDocument()
+
+    const seat = screen.getByRole('checkbox', { name: /row A, seat 1, available/ })
+    expect(seat).toHaveAttribute('aria-disabled', 'true')
+    await user.click(seat)
+    expect(seat).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Hold' })).toBeEnabled()
+  })
+
+  it('drops picks the next refresh shows as gone', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderRoute('/shows/show-1')
+
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+    await user.click(screen.getByRole('checkbox', { name: /row B, seat 1, available/ }))
+    for (let i = 0; i < 3; i++) await user.click(screen.getByRole('button', { name: 'More Floor tickets' }))
+
+    api.responses[availabilityPath] = () => Response.json(availability({ a1: false, floor: 1 }))
+    await act(() => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(await screen.findByText('1 of 200 places left')).toBeInTheDocument()
+    expect(summaryLines()).toEqual([
+      expect.stringMatching(/Floor.*General Admission × 1/),
+      expect.stringMatching(/Balcony.*Row B, seat 1/),
+    ])
+    expect(screen.getByRole('checkbox', { name: /row A, seat 1, held by someone else/ })).not.toBeChecked()
+  })
+
+  it('has nothing to pick once the Show has started', async () => {
+    api.responses[showPath] = () => Response.json(show({ startsAt: '2020-01-01T14:00:00Z' }))
+    renderRoute('/shows/show-1')
+
+    await screen.findByRole('img', { name: /row A, seat 1, available/ })
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /more floor tickets/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /your selection/i })).not.toBeInTheDocument()
   })
 })
