@@ -35,7 +35,12 @@ interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationEx
 			@Nullable LocalDate from, @Nullable LocalDate to) {
 
 		boolean concernShows() {
-			return hasText(this.city) || this.from != null || this.to != null;
+			return cityKey() != null || this.from != null || this.to != null;
+		}
+
+		/** The city as Venue cities are compared with it, lower case; {@code null} if there's no city filter. */
+		@Nullable String cityKey() {
+			return hasText(this.city) ? this.city.strip().toLowerCase(Locale.ROOT) : null;
 		}
 
 	}
@@ -70,9 +75,9 @@ interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationEx
 			List<Predicate> where = new ArrayList<>(List.of(cb.equal(show.get("eventId"), event.get("id")),
 					cb.equal(show.get("status"), Show.Status.PUBLISHED),
 					cb.greaterThan(show.<Instant>get("startsAt"), now), cb.equal(venue.get("id"), show.get("venueId"))));
-			String city = filters.city();
-			if (hasText(city)) {
-				where.add(cb.equal(cb.lower(venue.get("city")), city.strip().toLowerCase(Locale.ROOT)));
+			String city = filters.cityKey();
+			if (city != null) {
+				where.add(cb.equal(cb.lower(venue.get("city")), city));
 			}
 			// PostgreSQL's timezone(zone, timestamptz) gives the wall-clock time at the Venue.
 			Expression<LocalDateTime> localStart = cb.function("timezone", LocalDateTime.class, venue.get("timeZone"),

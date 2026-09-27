@@ -16,10 +16,10 @@ import com.getmyseat.catalogue.ShowBrowseResponses.Price;
 record EventCard(UUID id, String title, String description, Event.Category category, String language,
 		Event.Status status, @Nullable Instant publishedAt, @Nullable NextShow nextShow, @Nullable Price lowestPrice) {
 
-	static EventCard of(Event event, EventCards.@Nullable Browse browse) {
+	static EventCard of(Event event, EventCards.@Nullable Upcoming upcoming) {
 		return new EventCard(event.id(), event.title(), event.description(), event.category(), event.language(),
-				event.status(), event.publishedAt(), (browse != null) ? browse.nextShow() : null,
-				(browse != null) ? browse.lowestPrice() : null);
+				event.status(), event.publishedAt(), (upcoming != null) ? upcoming.nextShow() : null,
+				(upcoming != null) ? upcoming.lowestPrice() : null);
 	}
 
 	/**

@@ -8,10 +8,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -25,8 +25,11 @@ import com.getmyseat.catalogue.ShowBrowseResponses.Price;
 @Repository
 class EventCards {
 
-	/** An Event's soonest matching Show, and the lowest Section Price across all its matching Shows. */
-	record Browse(NextShow nextShow, Price lowestPrice) {
+	/**
+	 * An Event's soonest matching Show, and the lowest Section Price across all its matching Shows.
+	 * @param lowestPrice {@code null} only if none of those Shows is priced
+	 */
+	record Upcoming(NextShow nextShow, @Nullable Price lowestPrice) {
 	}
 
 	private final JdbcTemplate jdbc;
@@ -40,17 +43,17 @@ class EventCards {
 	 * {@link EventRepository#published} does.
 	 * @return by Event id; Events without such a Show are left out
 	 */
-	Map<UUID, Browse> of(Collection<UUID> events, EventRepository.Filters filters, Instant now) {
+	Map<UUID, Upcoming> upcoming(Collection<UUID> events, EventRepository.Filters filters, Instant now) {
 		if (events.isEmpty()) {
 			return Map.of();
 		}
 		StringBuilder where = new StringBuilder("""
 				s.event_id = ANY (?) AND s.status = 'PUBLISHED' AND s.starts_at > ?""");
 		List<Object> parameters = new ArrayList<>(List.of(Timestamp.from(now)));
-		String city = filters.city();
-		if (city != null && !city.isBlank()) {
+		String city = filters.cityKey();
+		if (city != null) {
 			where.append(" AND lower(v.city) = ?");
-			parameters.add(city.strip().toLowerCase(Locale.ROOT));
+			parameters.add(city);
 		}
 		// timezone(zone, timestamptz) gives the wall-clock time at the Venue.
 		LocalDate from = filters.from();
@@ -76,10 +79,10 @@ class EventCards {
 				)
 				SELECT DISTINCT ON (u.event_id) u.event_id, u.id, u.starts_at, u.venue_name, u.city, u.time_zone,
 				    l.amount_paise, l.currency
-				FROM upcoming u JOIN lowest l ON l.event_id = u.event_id
+				FROM upcoming u LEFT JOIN lowest l ON l.event_id = u.event_id
 				ORDER BY u.event_id, u.starts_at, u.id
 				""".formatted(where);
-		Map<UUID, Browse> browse = new HashMap<>();
+		Map<UUID, Upcoming> upcoming = new HashMap<>();
 		this.jdbc.query(connection -> {
 			PreparedStatement statement = connection.prepareStatement(sql);
 			statement.setArray(1, connection.createArrayOf("uuid", events.toArray()));
@@ -88,13 +91,14 @@ class EventCards {
 			}
 			return statement;
 		}, (row) -> {
-			browse.put(row.getObject("event_id", UUID.class),
-					new Browse(
+			String currency = row.getString("currency");
+			upcoming.put(row.getObject("event_id", UUID.class),
+					new Upcoming(
 							new NextShow(row.getObject("id", UUID.class), row.getTimestamp("starts_at").toInstant(),
 									row.getString("venue_name"), row.getString("city"), row.getString("time_zone")),
-							new Price(row.getLong("amount_paise"), row.getString("currency"))));
+							(currency != null) ? new Price(row.getLong("amount_paise"), currency) : null));
 		});
-		return browse;
+		return upcoming;
 	}
 
 }

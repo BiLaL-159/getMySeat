@@ -171,7 +171,7 @@ function ResultCard({ event }: { event: EventCard }) {
             ) : (
               <span className="font-mono">No upcoming Shows</span>
             )}
-            {nextShow && lowestPrice?.amountPaise !== undefined && (
+            {lowestPrice?.amountPaise !== undefined && (
               <span className="font-mono font-bold text-foreground">from {formatPrice(lowestPrice.amountPaise)}</span>
             )}
             <span className="line-clamp-2">{event.description}</span>
