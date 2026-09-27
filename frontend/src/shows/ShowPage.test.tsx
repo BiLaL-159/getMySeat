@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetSession } from '@/auth/session.ts'
 import { resetAuth, setAuth, signedIn, signedOut, signinRedirect } from '@/test/fakeAuth.ts'
 import { renderRoute } from '@/test/renderRoute.tsx'
+import { holdSessionRestore } from '@/test/sessionRestore.ts'
 import { keepSelection, keptSelection } from './keptSelection.ts'
 
 vi.mock('react-oidc-context', () => import('@/test/fakeAuth.ts'))
@@ -777,6 +778,70 @@ describe('signing in to hold', () => {
     cleanup()
     renderRoute('/shows/show-1')
     expect(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ })).not.toBeChecked()
+  })
+
+  it('waits for the session to be restored before holding, and holds for a visitor who was signed in', async () => {
+    api.responses[holdsPath] = () => Response.json(hold(), { status: 201 })
+    const user = userEvent.setup()
+    const restore = holdSessionRestore()
+    renderRoute('/shows/show-1')
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+
+    expect(screen.getByRole('button', { name: 'Hold' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(signinRedirect).not.toHaveBeenCalled()
+
+    setAuth(signedIn())
+    await restore.finish()
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(await screen.findByRole('region', { name: /your hold/i })).toBeInTheDocument()
+    expect(signinRedirect).not.toHaveBeenCalled()
+    expect(keptSelection('show-1')).toBeUndefined()
+  })
+
+  it('sends a visitor to sign in once the restore finds no session', async () => {
+    const user = userEvent.setup()
+    const restore = holdSessionRestore()
+    renderRoute('/shows/show-1')
+    await user.click(await screen.findByRole('checkbox', { name: /row A, seat 1, available/ }))
+
+    await restore.finish()
+    await user.click(screen.getByRole('button', { name: 'Hold' }))
+    expect(signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/shows/show-1' } })
+    expect(holdRequests()).toHaveLength(0)
+  })
+
+  it('says a kept selection has not been checked yet while availability loads', async () => {
+    keepSelection('show-1', { seats: ['a1'], generalAdmission: {} })
+    api.responses[availabilityPath] = () => new Promise(() => {})
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+
+    expect(await within(await screen.findByRole('region', { name: /your selection/i })).findByText(/checking they.re still there/i)).toBeInTheDocument()
+    expect(screen.queryByText(/hold them when you.re ready/i)).not.toBeInTheDocument()
+  })
+
+  it('says it couldn’t check a kept selection when availability fails, and checks it on a retry', async () => {
+    const user = userEvent.setup()
+    keepSelection('show-1', { seats: ['a1', 'b1'], generalAdmission: {} })
+    let fail = true
+    api.responses[availabilityPath] = () =>
+      fail
+        ? Response.json({ type: 'urn:getmyseat:problem:internal-error', status: 500 }, { status: 500 })
+        : Response.json(availability({ a1: false }))
+    setAuth(signedIn())
+    renderRoute('/shows/show-1')
+
+    const note = await within(await screen.findByRole('region', { name: /your selection/i })).findByText(/couldn.t check what.s still left/i)
+    expect(note).toHaveTextContent(/kept the tickets you picked/i)
+    expect(screen.queryByText(/hold them when you.re ready/i)).not.toBeInTheDocument()
+    expect(summaryLines()).toHaveLength(2)
+
+    fail = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText(/some went while you were away/i)).toBeInTheDocument()
+    expect(screen.queryByText(/couldn.t check what.s still left/i)).not.toBeInTheDocument()
+    expect(summaryLines()).toEqual([expect.stringMatching(/Balcony.*Row B, seat 1/)])
   })
 
   it('drops the note once the visitor changes the selection', async () => {
